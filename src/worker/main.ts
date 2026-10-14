@@ -10,8 +10,8 @@ const lines = createInterface({ input: process.stdin });
 
 lines.on("line", (line) => {
   try {
-    const msg = JSON.parse(line) as { method?: unknown };
-    log(`received ${typeof msg.method === "string" ? msg.method : "message without method"}`);
+    const msg = JSON.parse(line) as { method?: unknown } | null;
+    log(`received ${typeof msg?.method === "string" ? msg.method : "message without method"}`);
   } catch {
     log("ignored a line that is not JSON");
   }

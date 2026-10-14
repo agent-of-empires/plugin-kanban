@@ -6,7 +6,7 @@ var lines = createInterface({ input: process.stdin });
 lines.on("line", (line) => {
   try {
     const msg = JSON.parse(line);
-    log(`received ${typeof msg.method === "string" ? msg.method : "message without method"}`);
+    log(`received ${typeof msg?.method === "string" ? msg.method : "message without method"}`);
   } catch {
     log("ignored a line that is not JSON");
   }
