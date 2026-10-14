@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Board harness</title>
+  </head>
+  <body>
+    <!-- Mirrors how the dashboard hosts plugin pages: srcdoc, scripts only, opaque origin. -->
+    <iframe id="page" sandbox="allow-scripts" style="width: 100%; height: 90vh"></iframe>
+    <script>
+      const frame = document.getElementById("page");
+      window.addEventListener("message", (event) => {
+        if (event.source !== frame.contentWindow) return;
+        window.received = [...(window.received ?? []), event.data];
+      });
+      // Called by the test to push a host message into the page.
+      window.pushToPage = (msg) => frame.contentWindow.postMessage(msg, "*");
+      fetch("/dist/index.html")
+        .then((res) => res.text())
+        .then((html) => (frame.srcdoc = html));
+    </script>
+  </body>
+</html>
