@@ -40,6 +40,19 @@ test("ignores messages from other sources or bridge versions", () => {
   expect(onContext).not.toHaveBeenCalled();
 });
 
+test("ignores pushes with a malformed payload", () => {
+  const { host, self, deliver } = fakeWindows();
+  const onContext = vi.fn();
+  const onTheme = vi.fn();
+  connectBridge(host, self, { onContext, onTheme });
+
+  deliver(host, { bridge: BRIDGE_VERSION, type: "context" });
+  deliver(host, { bridge: BRIDGE_VERSION, type: "theme", payload: null });
+  deliver(host, { bridge: BRIDGE_VERSION, type: "theme", payload: { appearance: "dark" } });
+  expect(onContext).not.toHaveBeenCalled();
+  expect(onTheme).not.toHaveBeenCalled();
+});
+
 test("disconnect removes the listener", () => {
   const { host, self, listening } = fakeWindows();
   const disconnect = connectBridge(host, self, { onContext: vi.fn(), onTheme: vi.fn() });

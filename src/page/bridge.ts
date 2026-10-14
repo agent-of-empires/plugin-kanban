@@ -31,6 +31,8 @@ interface MessageSource {
   removeEventListener(type: "message", listener: (event: MessageEvent) => void): void;
 }
 
+const isObject = (value: unknown): value is object => typeof value === "object" && value !== null;
+
 // Listens for host pushes, then signals ready. The page runs in an opaque-origin
 // sandbox, so messages are matched on their source window, not their origin.
 export function connectBridge(
@@ -41,9 +43,9 @@ export function connectBridge(
   const listener = (event: MessageEvent) => {
     if (event.source !== host) return;
     const msg = event.data as HostMessage;
-    if (msg?.bridge !== BRIDGE_VERSION) return;
+    if (msg?.bridge !== BRIDGE_VERSION || !isObject(msg.payload)) return;
     if (msg.type === "context") handlers.onContext(msg.payload);
-    else if (msg.type === "theme") handlers.onTheme(msg.payload);
+    else if (msg.type === "theme" && isObject(msg.payload.cssVars)) handlers.onTheme(msg.payload);
   };
   self.addEventListener("message", listener);
   host.postMessage({ bridge: BRIDGE_VERSION, type: "ready" }, "*");
