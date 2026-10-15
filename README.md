@@ -6,8 +6,8 @@ An [Agent of Empires](https://github.com/agent-of-empires/agent-of-empires)
 plugin. It adds a **Board** page (the `page` UI slot) backed by a Node worker
 that speaks JSON-RPC 2.0 over newline-delimited JSON on stdio.
 
-> **Status:** early. The Board renders read-only; moving Cards and editing
-> Columns come later. The page slot needs core
+> **Status:** early. Columns are editable; moving Cards and editing Rules
+> come later. The page slot needs core
 > [agent-of-empires#4459](https://github.com/agent-of-empires/agent-of-empires/issues/4459)
 > (`api_version` 16).
 
@@ -58,6 +58,15 @@ The default Board:
 | Needs testing | Stage | |
 | Waiting for review | Stage | |
 | Done | Stage | |
+
+### Editing Columns
+
+"Add column" at the end of the Board and the `⋯` on a Column header open the
+Column dialog. A Column's kind is fixed once created. Drag a header to reorder
+Columns; for Signal columns that order is their priority. Deleting a Stage
+column sends its Cards to the leftmost Stage column, and the last Stage column
+cannot be deleted. A new Signal column has no Rules yet, so it holds nothing.
+Editing is hidden in read-only and CityHall mode.
 
 A Rule is a list of conditions that must all hold; a Column matches when any
 of its Rules does. Urgent, unread, last error, pending Approvals and last
