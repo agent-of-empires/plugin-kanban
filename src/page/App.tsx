@@ -10,10 +10,24 @@ const POLL_MS = 2_000;
 // How long an edit shows before the snapshot must carry it back. An `action`
 // reply only acknowledges delivery; the worker drops a config it rejects.
 const CONFIRM_MS = 10_000;
+// The worker ignores an invalid Stage write without a reply, so an unconfirmed
+// move is dropped after this long. Matches core's action spinner timeout.
+const MOVE_MS = 15_000;
 
 interface Data {
   sessions: BridgeSession[];
   entries: UiEntry[];
+  // Number of the poll that fetched this data.
+  seq: number;
+}
+
+// A Stage write shown before the snapshot confirms it. `req` tells apart two
+// writes of the same Session; `ackSeq` is the last poll started when the
+// bridge acknowledged it, so only a later poll can confirm it.
+interface Move {
+  columnId: string;
+  req: number;
+  ackSeq?: number;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -21,7 +35,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 // Keeps rows with the fields the Board relies on; a malformed answer throws so
 // the last good data stays on screen.
-function readData(sessions: unknown, uiState: unknown): Data {
+function readData(sessions: unknown, uiState: unknown): Omit<Data, "seq"> {
   const entries = isRecord(uiState) ? uiState.entries : undefined;
   if (!Array.isArray(sessions) || !Array.isArray(entries)) throw new Error("malformed bridge reply");
   return {
@@ -39,6 +53,7 @@ function readData(sessions: unknown, uiState: unknown): Data {
 export function App({ bridge, context }: { bridge: Bridge; context: BridgeContext | null }) {
   const [data, setData] = useState<Data | null>(null);
   const [failed, setFailed] = useState(false);
+  const pollSeq = useRef(0);
 
   useEffect(() => {
     if (!context) return;
@@ -46,9 +61,10 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
     let timer: ReturnType<typeof setTimeout>;
     // Waits for each poll before scheduling the next, so polls never overlap.
     const poll = async () => {
+      const seq = ++pollSeq.current;
       try {
         const [sessions, uiState] = await Promise.all([bridge.request("sessions.list"), bridge.request("plugins.uiState")]);
-        if (live) setData(readData(sessions, uiState));
+        if (live) setData({ ...readData(sessions, uiState), seq });
       } catch (e) {
         console.error(`[kanban] refresh failed: ${(e as Error).message}`);
         if (live) setFailed(true);
@@ -67,6 +83,8 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
   const pendingRef = useRef<Config | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const [dialog, setDialog] = useState<Column | "new" | null>(null);
+  const [moves, setMoves] = useState<Record<string, Move>>({});
+  const nextReq = useRef(0);
 
   const snapshot = useMemo(() => data && context && findSnapshot(data.entries, context.pluginId, context.pageId), [data, context]);
   useEffect(() => {
@@ -75,13 +93,26 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
       setPending(null);
     }
   }, [snapshot, pending]);
+  // Drops the Stage writes this snapshot confirms.
+  useEffect(() => {
+    if (!data || !snapshot) return;
+    setMoves((prev) => {
+      const confirmed = Object.keys(prev).filter((id) => {
+        const m = prev[id];
+        return m.ackSeq !== undefined && data.seq > m.ackSeq && snapshot.stages[id] === m.columnId;
+      });
+      return confirmed.length ? without(prev, confirmed) : prev;
+    });
+  }, [data, snapshot]);
   const config = pending ?? snapshot?.config;
-  const columns = useMemo(
-    () => data && snapshot && config && buildBoard(data.sessions, data.entries, { ...snapshot, config }),
-    [data, snapshot, config],
-  );
+  const columns = useMemo(() => {
+    if (!data || !snapshot || !config) return null;
+    const stages = { ...snapshot.stages };
+    for (const [id, m] of Object.entries(moves)) stages[id] = m.columnId;
+    return buildBoard(data.sessions, data.entries, { config, stages });
+  }, [data, snapshot, config, moves]);
 
-  if (!columns || !config) {
+  if (!columns || !config || !snapshot) {
     return (
       <p className="notice" data-testid="board-status">
         {failed ? "Couldn't load sessions from the dashboard." : "Loading the Board..."}
@@ -110,12 +141,34 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
       },
     );
   };
+  const setStage = (sessionId: string, columnId: string) => {
+    // A Stage that is only the leftmost fallback is still written, to record it.
+    if ((moves[sessionId]?.columnId ?? snapshot.stages[sessionId]) === columnId) return;
+    const req = ++nextReq.current;
+    // Settles this write only if no later write of the Session replaced it.
+    const settle = (fn: (prev: Record<string, Move>) => Record<string, Move>) =>
+      setMoves((prev) => (prev[sessionId]?.req === req ? fn(prev) : prev));
+    const drop = () => settle((prev) => without(prev, [sessionId]));
+    setMoves((prev) => ({ ...prev, [sessionId]: { columnId, req } }));
+    setTimeout(drop, MOVE_MS);
+    bridge.request("action", { method: "stage.set", params: { sessionId, columnId } }).then(
+      () => {
+        const ackSeq = pollSeq.current;
+        settle((prev) => ({ ...prev, [sessionId]: { ...prev[sessionId], ackSeq } }));
+      },
+      (e: Error) => {
+        console.error(`[kanban] stage.set failed: ${e.message}`);
+        drop();
+      },
+    );
+  };
   const editor: Editor | undefined =
     context && !context.readOnly && !context.cityhall
       ? {
           onAdd: () => setDialog("new"),
           onEdit: setDialog,
           onMove: (id, to) => save(moveColumn(config, id, to)),
+          onStage: setStage,
         }
       : undefined;
   const editing = dialog === "new" ? null : dialog;
@@ -148,3 +201,6 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
     </>
   );
 }
+
+const without = <T,>(map: Record<string, T>, ids: string[]) =>
+  Object.fromEntries(Object.entries(map).filter(([id]) => !ids.includes(id)));

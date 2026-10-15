@@ -103,28 +103,111 @@ body {
   list-style: none;
 }
 
+.column.over {
+  border-color: var(--color-accent-500);
+}
+
 .card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  padding: 8px 10px;
+  position: relative;
   background: var(--color-surface-800);
   border: 1px solid var(--color-surface-700);
   border-radius: 6px;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
 
 .card:hover {
   border-color: var(--color-surface-600);
 }
 
-.card:focus-visible {
+.card.dragging {
+  opacity: 0.4;
+}
+
+.card.overlay {
+  border-color: var(--color-accent-500);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 35%);
+  cursor: grabbing;
+}
+
+.card-open {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 28px 8px 10px;
+  background: none;
+  border: 0;
+  border-radius: inherit;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* Leaves vertical swipes to the Column; a long press starts a drag. */
+  touch-action: pan-y;
+}
+
+.card-open:focus-visible,
+.card-menu:focus-visible,
+.menu button:focus-visible {
   outline: 2px solid var(--color-accent-500);
   outline-offset: 1px;
+}
+
+.card-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 0 6px;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.card-menu:hover {
+  background: var(--color-surface-700);
+  color: var(--color-text-primary);
+}
+
+.menu {
+  position: fixed;
+  z-index: 10;
+  min-width: 160px;
+  margin: 0;
+  padding: 4px;
+  background: var(--color-surface-850);
+  border: 1px solid var(--color-surface-600);
+  border-radius: 6px;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 35%);
+  list-style: none;
+}
+
+.menu-title {
+  padding: 4px 8px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.menu button {
+  width: 100%;
+  padding: 4px 8px;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu button:hover {
+  background: var(--color-surface-700);
+}
+
+.menu button[aria-checked="true"]::after {
+  content: " ✓";
+  color: var(--color-text-muted);
 }
 
 .card-title {
