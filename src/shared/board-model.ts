@@ -21,6 +21,8 @@ export interface BridgeSession {
   pending_approvals?: number;
   // ISO 8601.
   last_activity?: string;
+  // Slash-separated sidebar Group path.
+  group_path?: string;
 }
 
 // One entry of the bridge's plugins.uiState.
@@ -53,6 +55,11 @@ export interface Card {
 export interface BoardColumn {
   column: Column;
   cards: Card[];
+}
+
+export interface FilteredColumn extends BoardColumn {
+  // Card count before filtering.
+  total: number;
 }
 
 export interface Snapshot {
@@ -195,4 +202,22 @@ export function buildBoard(sessions: BridgeSession[], entries: UiEntry[], snapsh
   }
   for (const b of board) b.cards.sort((x, y) => compareCards(x, y, entries));
   return board;
+}
+
+// Mirrors the dashboard sidebar matcher (web/src/components/sidebar/filterGroups.ts):
+// a case-insensitive substring of any listed field.
+function cardMatches({ session, repo, branch }: Card, q: string): boolean {
+  return [session.title, session.project_path, repo, branch, session.tool, session.group_path].some((f) =>
+    f?.toLowerCase().includes(q),
+  );
+}
+
+// Columns stay when no Card matches, so their `total` still shows.
+export function filterBoard(board: BoardColumn[], query: string): FilteredColumn[] {
+  const q = query.trim().toLowerCase();
+  return board.map(({ column, cards }) => ({
+    column,
+    cards: q ? cards.filter((c) => cardMatches(c, q)) : cards,
+    total: cards.length,
+  }));
 }

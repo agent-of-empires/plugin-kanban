@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { type Column, type Config, DEFAULT_CONFIG } from "../src/shared/board-config";
-import { type BridgeSession, type UiEntry, buildBoard, findSnapshot } from "../src/shared/board-model";
+import { type BridgeSession, type UiEntry, buildBoard, filterBoard, findSnapshot } from "../src/shared/board-model";
 
 const session = (id: string, extra: Partial<BridgeSession> = {}): BridgeSession => ({
   id,
@@ -206,4 +206,43 @@ test("findSnapshot reads the page entry and falls back to the default config", (
   expect(findSnapshot([entry({ config: { version: 9 } })], "k", "board")).toEqual({ stages: {}, config: DEFAULT_CONFIG });
   expect(findSnapshot([entry({ config: custom }, { plugin_id: "other" })], "k", "board").config).toBe(DEFAULT_CONFIG);
   expect(findSnapshot([], "k", "board")).toEqual({ stages: {}, config: DEFAULT_CONFIG });
+});
+
+const searchSessions = [
+  session("a", { title: "Fix Login", status: "Waiting" }),
+  session("b", { tool: "codex", worktree: { branch: "feat/board", main_repo_path: "/repos/aoe" } }),
+  session("c", { project_path: "/work/kanban", group_path: "clients/acme" }),
+];
+const search = (query: string) => filterBoard(board(searchSessions), query);
+const matched = (query: string) => search(query).flatMap((b) => b.cards.map((c) => c.session.id));
+
+test.each([
+  ["title", "LOGIN", ["a"]],
+  ["project path", "/work/", ["c"]],
+  ["repo", "Aoe", ["b"]],
+  ["branch", "feat/board", ["b"]],
+  ["agent", "Codex", ["b"]],
+  ["Group path", "acme", ["c"]],
+  ["no field", "nothing", []],
+])("search matches %s, case-insensitive", (_name, query, ids) => {
+  expect(matched(query)).toEqual(ids);
+});
+
+test("a blank query keeps every Card", () => {
+  expect(matched("  ").sort()).toEqual(["a", "b", "c"]);
+});
+
+test("search trims the query", () => {
+  expect(matched("  codex ")).toEqual(["b"]);
+});
+
+test("search keeps every Column and counts matched over total", () => {
+  expect(search("codex").map((b) => [b.column.id, b.cards.length, b.total])).toEqual([
+    ["action-needed", 0, 1],
+    ["error", 0, 0],
+    ["in-progress", 1, 2],
+    ["needs-testing", 0, 0],
+    ["waiting-for-review", 0, 0],
+    ["done", 0, 0],
+  ]);
 });
