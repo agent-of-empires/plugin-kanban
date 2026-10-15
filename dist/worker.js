@@ -185,19 +185,22 @@ async function loadConfig() {
 async function hydrate() {
   const ids = await listSessionIds();
   if (!ids) return;
+  const next = /* @__PURE__ */ new Map();
   for (const id of ids) {
     try {
       const result = await call("session.meta.get", { session_id: id, key: STAGE_KEY });
       const value = isRecord2(result) ? result.value : void 0;
-      if (typeof value === "string" && value) stages.set(id, value);
+      if (typeof value === "string" && value) next.set(id, value);
     } catch (e) {
       log(`reading the stage of ${id} failed: ${errorText(e)}`);
     }
   }
+  stages = next;
   hydrated = true;
 }
 async function resync() {
   if (!hydrated) {
+    await loadConfig();
     await hydrate();
   } else {
     const ids = await listSessionIds();
@@ -205,6 +208,14 @@ async function resync() {
     for (const id of stages.keys()) if (!ids.has(id)) stages.delete(id);
   }
   publish(false);
+}
+async function write(method, params) {
+  try {
+    await call(method, params);
+  } catch (e) {
+    hydrated = false;
+    throw e;
+  }
 }
 async function setStage(params) {
   const { sessionId, columnId } = isRecord2(params) ? params : {};
@@ -223,7 +234,7 @@ async function setStage(params) {
     log("ignored stage.set: the snapshot would exceed its size cap");
     return;
   }
-  await call("session.meta.set", { session_id: sessionId, key: STAGE_KEY, value: columnId });
+  await write("session.meta.set", { session_id: sessionId, key: STAGE_KEY, value: columnId });
   stages = next;
   publish(true);
 }
@@ -237,7 +248,7 @@ async function setConfig(params) {
     log("ignored config.set: the snapshot would exceed its size cap");
     return;
   }
-  await call("plugin.storage.set", { key: CONFIG_KEY, value: parsed.config });
+  await write("plugin.storage.set", { key: CONFIG_KEY, value: parsed.config });
   config = parsed.config;
   publish(true);
 }

@@ -15,7 +15,8 @@ const SNAPSHOT_MAX_BYTES = 64 * 1024;
 
 let config: Config = DEFAULT_CONFIG;
 let stages = new Map<string, string>();
-// False until a full start scan succeeds; the next status change retries it.
+// False until a full scan succeeds, and again after a failed write; the next
+// status change then reloads config and stages from the host.
 let hydrated = false;
 let lastPublished: string | undefined;
 
@@ -72,22 +73,25 @@ async function loadConfig() {
 async function hydrate() {
   const ids = await listSessionIds();
   if (!ids) return;
+  const next = new Map<string, string>();
   // ponytail: one meta read at a time, so start costs one host round trip per
   // Session; read through a small pool if start gets slow with many Sessions.
   for (const id of ids) {
     try {
       const result = await call("session.meta.get", { session_id: id, key: STAGE_KEY });
       const value = isRecord(result) ? result.value : undefined;
-      if (typeof value === "string" && value) stages.set(id, value);
+      if (typeof value === "string" && value) next.set(id, value);
     } catch (e) {
       log(`reading the stage of ${id} failed: ${errorText(e)}`);
     }
   }
+  stages = next;
   hydrated = true;
 }
 
 async function resync() {
   if (!hydrated) {
+    await loadConfig();
     await hydrate();
   } else {
     const ids = await listSessionIds();
@@ -95,6 +99,17 @@ async function resync() {
     for (const id of stages.keys()) if (!ids.has(id)) stages.delete(id);
   }
   publish(false);
+}
+
+// A failed write may still land on the host (a timed-out request can apply
+// late), so memory is marked stale for the next resync to reload.
+async function write(method: string, params: unknown) {
+  try {
+    await call(method, params);
+  } catch (e) {
+    hydrated = false;
+    throw e;
+  }
 }
 
 async function setStage(params: unknown) {
@@ -114,7 +129,7 @@ async function setStage(params: unknown) {
     log("ignored stage.set: the snapshot would exceed its size cap");
     return;
   }
-  await call("session.meta.set", { session_id: sessionId, key: STAGE_KEY, value: columnId });
+  await write("session.meta.set", { session_id: sessionId, key: STAGE_KEY, value: columnId });
   stages = next;
   publish(true);
 }
@@ -131,7 +146,7 @@ async function setConfig(params: unknown) {
     log("ignored config.set: the snapshot would exceed its size cap");
     return;
   }
-  await call("plugin.storage.set", { key: CONFIG_KEY, value: parsed.config });
+  await write("plugin.storage.set", { key: CONFIG_KEY, value: parsed.config });
   config = parsed.config;
   publish(true);
 }

@@ -197,6 +197,28 @@ test("a host that never replies times out without wedging the queue", async () =
   expect(w.snapshots().some((s) => s.stages.a1 === "needs-testing")).toBe(false);
 });
 
+test("a write that times out but lands on the host is reloaded on the next status change", async () => {
+  const config: Config = { ...DEFAULT_CONFIG, columns: DEFAULT_CONFIG.columns.slice(0, 3) };
+  const w = startWorker({
+    sessions: ["a1"],
+    env: { KANBAN_RPC_TIMEOUT_MS: "200" },
+    // Apply both writes, then never reply.
+    intercept: (req) => {
+      if (req.method === "session.meta.set") w.meta.a1 = req.params.value;
+      else if (req.method === "plugin.storage.set") w.storage.config = req.params.value;
+      else return undefined;
+      return "silent";
+    },
+  });
+  w.notify("stage.set", { sessionId: "a1", columnId: "in-progress" });
+  w.notify("config.set", { config });
+  await vi.waitFor(() => expect(w.stderr()).toContain("config.set failed: plugin.storage.set timed out"));
+  expect(lastSnapshot(w)).toEqual({ stages: {}, config: DEFAULT_CONFIG });
+
+  w.notify("session.status.changed", {});
+  await vi.waitFor(() => expect(lastSnapshot(w)).toEqual({ stages: { a1: "in-progress" }, config }));
+});
+
 test("session.status.changed drops purged Sessions and skips unchanged snapshots", async () => {
   const host: HostState = { sessions: ["a1", "b2"], meta: { a1: "done", b2: "in-progress" } };
   const w = startWorker(host);
