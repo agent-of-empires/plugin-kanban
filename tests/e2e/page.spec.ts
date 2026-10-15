@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { type Page, expect, test } from "@playwright/test";
+import { type Locator, type Page, expect, test } from "@playwright/test";
 
 const ORIGIN = "http://harness.test";
 // The daemon's page policy (core src/server/api/plugins.rs `PLUGIN_PAGE_CSP`).
@@ -125,6 +125,8 @@ test("the search box hides non-matching Cards and counts matches per Column", as
 type Harness = {
   startPage: (f: unknown) => void;
   fixtures: () => typeof fixtures;
+  publishStage: (sessionId: string, columnId: string) => void;
+  opened: string[];
   actions: { method: string; params: { config: { columns: { id: string; title: string; kind: string }[] } } }[];
 };
 // Runs fn in the harness window with a JSON argument; fn sees no closure.
@@ -235,3 +237,97 @@ for (const flag of ["readOnly", "cityhall"] as const) {
     await expect(board(page).locator("h2[aria-roledescription]")).toHaveCount(0);
   });
 }
+
+test.describe("moving Cards", () => {
+  // Wide enough for the whole default Board, so a drag never nears an edge and
+  // autoscrolls the Board under the pointer.
+  test.use({ viewport: { width: 1920, height: 1000 } });
+
+  const actions = (page: Page) => harness(page, (h) => h.actions);
+  const stageSet = (sessionId: string, columnId: string) => ({ method: "stage.set", params: { sessionId, columnId } });
+  const restart = (page: Page, overrides: { rejectActions?: boolean; context?: Record<string, boolean> }) =>
+    harness(page, (h, o) => h.startPage({ ...h.fixtures(), ...o, context: { ...h.fixtures().context, ...o!.context } }), overrides);
+
+  // A real mouse drag: past the 5px activation distance, then onto the target.
+  async function drag(page: Page, from: Locator, to: Locator) {
+    const a = (await from.boundingBox())!;
+    const b = (await to.boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2, { steps: 5 });
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 10 });
+    await page.mouse.up();
+  }
+
+  test("dragging a Card onto a Stage column writes its Stage and moves it at once", async ({ page }) => {
+    await drag(page, column(page, "in-progress").getByTestId("card-fresh"), column(page, "done"));
+
+    await expect(column(page, "done").getByTestId("card-fresh")).toBeVisible();
+    await expect.poll(() => actions(page)).toEqual([stageSet("fresh", "done")]);
+    expect(await harness(page, (h) => h.opened)).toEqual([]);
+
+    // Once the snapshot confirms the move, the snapshot alone places the Card:
+    // a later change from elsewhere shows up.
+    await harness(page, (h) => h.publishStage("fresh", "done"));
+    await page.waitForTimeout(2_500);
+    await harness(page, (h) => h.publishStage("fresh", "needs-testing"));
+    await expect(column(page, "needs-testing").getByTestId("card-fresh")).toBeVisible();
+  });
+
+  test("dragging a Card out of a Signal column records its Stage but leaves it there", async ({ page }) => {
+    const card = column(page, "action-needed").getByTestId("card-waiting");
+    await drag(page, card, column(page, "done"));
+
+    await expect(card.getByTestId("stage-chip")).toHaveText("Done");
+    await expect(column(page, "done").getByTestId("card-waiting")).toHaveCount(0);
+    await expect.poll(() => actions(page)).toEqual([stageSet("waiting", "done")]);
+  });
+
+  test("a Card dropped on a Signal column stays and writes nothing", async ({ page }) => {
+    await drag(page, column(page, "in-progress").getByTestId("card-fresh"), column(page, "error"));
+    await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
+    expect(await actions(page)).toEqual([]);
+  });
+
+  test("Move to lists the Stage columns and writes the chosen one", async ({ page }) => {
+    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Move to…" }).click();
+
+    const items = board(page).getByRole("menu").getByRole("menuitemradio");
+    await expect(items).toHaveText(["In progress", "Needs testing", "Waiting for review", "Done"]);
+    await expect(items.first()).toHaveAttribute("aria-checked", "true");
+    await items.filter({ hasText: "Needs testing" }).click();
+
+    await expect(board(page).getByRole("menu")).toHaveCount(0);
+    await expect(column(page, "needs-testing").getByTestId("card-fresh")).toBeVisible();
+    await expect.poll(() => actions(page)).toEqual([stageSet("fresh", "needs-testing")]);
+  });
+
+  test("right-clicking a Card opens Move to, and Escape closes it", async ({ page }) => {
+    await board(page).getByTestId("card-broken").click({ button: "right" });
+    await expect(board(page).getByRole("menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(board(page).getByRole("menu")).toHaveCount(0);
+  });
+
+  test("a refused write puts the Card back", async ({ page }) => {
+    await restart(page, { rejectActions: true });
+    await drag(page, column(page, "in-progress").getByTestId("card-fresh"), column(page, "done"));
+    await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
+    await expect(column(page, "done").getByTestId("card-fresh")).toHaveCount(0);
+  });
+
+  for (const flag of ["readOnly", "cityhall"] as const) {
+    test(`${flag} context: no drag and no Move to`, async ({ page }) => {
+      await restart(page, { context: { [flag]: true } });
+      const card = column(page, "in-progress").getByTestId("card-fresh");
+      await expect(card).toBeVisible();
+      await expect(card.getByRole("button", { name: "Move to…" })).toHaveCount(0);
+
+      await card.click({ button: "right" });
+      await expect(board(page).getByRole("menu")).toHaveCount(0);
+      await drag(page, card, column(page, "done"));
+      await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
+      expect(await actions(page)).toEqual([]);
+    });
+  }
+});
