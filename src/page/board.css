@@ -60,11 +60,32 @@ body {
   border-radius: 8px;
 }
 
+.column-header {
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+}
+
 .column h2 {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   margin: 0;
   padding: 10px 12px;
   font-size: 13px;
   font-weight: 600;
+}
+
+.column h2[aria-roledescription] {
+  cursor: grab;
+}
+
+.column.dragging {
+  position: relative;
+  z-index: 1;
+  opacity: 0.85;
 }
 
 .count {
@@ -189,4 +210,111 @@ body {
 }
 .tone-danger {
   --tone: var(--color-status-error);
+}
+
+button {
+  padding: 4px 10px;
+  background: var(--color-surface-800);
+  border: 1px solid var(--color-surface-700);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.icon {
+  padding: 0 6px;
+  border-color: transparent;
+  background: none;
+  color: var(--color-text-muted);
+}
+
+button.primary {
+  background: var(--color-accent-500);
+  border-color: var(--color-accent-500);
+}
+
+button.danger {
+  color: var(--color-status-error);
+}
+
+.add-column {
+  flex: 0 0 160px;
+  align-self: flex-start;
+  border-style: dashed;
+  color: var(--color-text-secondary);
+}
+
+.column-dialog {
+  width: min(420px, 90vw);
+  padding: 16px;
+  background: var(--color-surface-850);
+  border: 1px solid var(--color-surface-700);
+  border-radius: 8px;
+  color: inherit;
+}
+
+.column-dialog::backdrop {
+  background: rgb(0 0 0 / 50%);
+}
+
+.column-dialog h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.column-dialog label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.column-dialog input:not([type="radio"]) {
+  flex: 1;
+  padding: 4px 8px;
+  background: var(--color-surface-900);
+  border: 1px solid var(--color-surface-700);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+}
+
+.column-dialog fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+  border: 1px solid var(--color-surface-700);
+  border-radius: 6px;
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.toast {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--color-surface-800);
+  border: 1px solid var(--color-status-error);
+  border-radius: 6px;
 }
