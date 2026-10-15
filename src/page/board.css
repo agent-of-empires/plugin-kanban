@@ -1,0 +1,165 @@
+/* Every colour comes from the theme variables the dashboard pushes. */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface-900);
+  color: var(--color-text-primary);
+  font: 13px/1.4 "Geist", system-ui, sans-serif;
+}
+
+.notice {
+  padding: 16px;
+  color: var(--color-text-muted);
+}
+
+.board {
+  display: flex;
+  gap: 12px;
+  height: 100vh;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.column {
+  display: flex;
+  flex: 0 0 280px;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface-850);
+  border: 1px solid var(--color-surface-700);
+  border-radius: 8px;
+}
+
+.column h2 {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.count {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.column ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0 8px 8px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--color-surface-800);
+  border: 1px solid var(--color-surface-700);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:hover {
+  border-color: var(--color-surface-600);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--color-accent-500);
+  outline-offset: 1px;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-meta {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.branch {
+  color: var(--color-branch);
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-status-idle);
+}
+
+/* Status colours follow the dashboard's (web/src/lib/session.ts). */
+.status-running {
+  background: var(--color-status-running);
+}
+.status-waiting {
+  background: var(--color-status-waiting);
+}
+.status-error,
+.status-deleting {
+  background: var(--color-status-error);
+}
+.status-starting,
+.status-creating {
+  background: var(--color-status-starting);
+}
+.status-stopped {
+  background: var(--color-status-stopped);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  --tone: var(--color-status-idle);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 15%, transparent);
+  color: var(--tone);
+  font: 11px "Geist Mono", ui-monospace, monospace;
+}
+
+.chip.stage {
+  --tone: var(--color-text-secondary);
+  border: 1px solid var(--color-surface-600);
+}
+
+/* Plugin tones, as the dashboard maps them (web/src/lib/pluginUi.ts). */
+.tone-info {
+  --tone: var(--color-status-unread);
+}
+.tone-success {
+  --tone: var(--color-status-running);
+}
+.tone-warn {
+  --tone: var(--color-status-waiting);
+}
+.tone-danger {
+  --tone: var(--color-status-error);
+}

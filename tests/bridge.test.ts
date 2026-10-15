@@ -1,61 +1,103 @@
-import { expect, test, vi } from "vitest";
-import { BRIDGE_VERSION, connectBridge } from "../src/page/bridge";
-
-function fakeWindows() {
-  let listener: ((event: MessageEvent) => void) | null = null;
-  const host = { postMessage: vi.fn() };
-  const self = {
-    addEventListener: (_: "message", fn: (event: MessageEvent) => void) => (listener = fn),
-    removeEventListener: () => (listener = null),
-  };
-  const deliver = (source: unknown, data: unknown) => listener?.({ source, data } as MessageEvent);
-  return { host, self, deliver, listening: () => listener !== null };
-}
+import { afterEach, expect, test, vi } from "vitest";
+import { BRIDGE_VERSION, BridgeError, connectBridge } from "../src/page/bridge";
 
 const context = { readOnly: true, cityhall: false, pluginId: "agent-of-empires.kanban", pageId: "board", bridgeVersion: 1 };
 
-test("signals ready and forwards context and theme pushes from the host", () => {
-  const { host, self, deliver } = fakeWindows();
-  const onContext = vi.fn();
-  const onTheme = vi.fn();
-  connectBridge(host, self, { onContext, onTheme });
+type Msg = { aoeBridge: number; id: number; method: string; params?: Record<string, unknown> };
 
-  expect(host.postMessage).toHaveBeenCalledWith({ bridge: BRIDGE_VERSION, type: "ready" }, "*");
-
-  deliver(host, { bridge: BRIDGE_VERSION, type: "context", payload: context });
-  const theme = { appearance: "dark", cssVars: { "--bg": "#000" } };
-  deliver(host, { bridge: BRIDGE_VERSION, type: "theme", payload: theme });
-  expect(onContext).toHaveBeenCalledWith(context);
-  expect(onTheme).toHaveBeenCalledWith(theme);
+const open: MessagePort[] = [];
+afterEach(() => {
+  open.splice(0).forEach((p) => p.close());
+  vi.useRealTimers();
 });
 
-test("ignores messages from other sources or bridge versions", () => {
-  const { host, self, deliver } = fakeWindows();
-  const onContext = vi.fn();
-  connectBridge(host, self, { onContext, onTheme: vi.fn() });
+// Plays the dashboard: captures the ready message and the transferred port,
+// then answers requests on that port with `answer`.
+function fakeHost(answer: (msg: Msg) => object | undefined = () => undefined) {
+  let resolveReady: (v: { msg: Msg; port: MessagePort }) => void = () => {};
+  const ready = new Promise<{ msg: Msg; port: MessagePort }>((resolve) => (resolveReady = resolve));
+  const requests: Msg[] = [];
+  const host = {
+    postMessage: (msg: Msg, _origin: string, transfer: MessagePort[]) => {
+      const port = transfer[0];
+      open.push(port);
+      port.onmessage = ({ data }) => {
+        requests.push(data);
+        const reply = answer(data);
+        if (reply) port.postMessage({ aoeBridge: BRIDGE_VERSION, id: data.id, ...reply });
+      };
+      resolveReady({ msg, port });
+    },
+  } as unknown as Window;
+  return { host, ready, requests };
+}
 
-  deliver({}, { bridge: BRIDGE_VERSION, type: "context", payload: context });
-  deliver(host, { bridge: BRIDGE_VERSION + 1, type: "context", payload: context });
-  deliver(host, null);
-  expect(onContext).not.toHaveBeenCalled();
+const handlers = () => ({ onContext: vi.fn(), onTheme: vi.fn() });
+
+test("sends ready with the nonce and a port, then forwards context and theme pushes", async () => {
+  const { host, ready } = fakeHost();
+  const h = handlers();
+  const bridge = connectBridge(host, "n0nce", h);
+  const { msg, port } = await ready;
+  expect(msg).toEqual({ aoeBridge: BRIDGE_VERSION, id: 1, method: "ready", params: { nonce: "n0nce" } });
+
+  const theme = { appearance: "dark", cssVars: { "--color-surface-900": "#000" } };
+  port.postMessage({ aoeBridge: BRIDGE_VERSION, event: "context", data: context });
+  port.postMessage({ aoeBridge: BRIDGE_VERSION, event: "theme", data: theme });
+  await vi.waitFor(() => expect(h.onTheme).toHaveBeenCalledWith(theme));
+  expect(h.onContext).toHaveBeenCalledWith(context);
+  bridge.close();
 });
 
-test("ignores pushes with a malformed payload", () => {
-  const { host, self, deliver } = fakeWindows();
-  const onContext = vi.fn();
-  const onTheme = vi.fn();
-  connectBridge(host, self, { onContext, onTheme });
-
-  deliver(host, { bridge: BRIDGE_VERSION, type: "context" });
-  deliver(host, { bridge: BRIDGE_VERSION, type: "theme", payload: null });
-  deliver(host, { bridge: BRIDGE_VERSION, type: "theme", payload: { appearance: "dark" } });
-  expect(onContext).not.toHaveBeenCalled();
-  expect(onTheme).not.toHaveBeenCalled();
+test("ignores malformed pushes and other bridge versions", async () => {
+  const { host, ready } = fakeHost();
+  const h = handlers();
+  const bridge = connectBridge(host, "", h);
+  const { port } = await ready;
+  port.postMessage({ aoeBridge: BRIDGE_VERSION + 1, event: "context", data: context });
+  port.postMessage({ aoeBridge: BRIDGE_VERSION, event: "context", data: { ...context, pluginId: 1 } });
+  port.postMessage({ aoeBridge: BRIDGE_VERSION, event: "theme", data: { appearance: "dark" } });
+  port.postMessage(null);
+  port.postMessage({ aoeBridge: BRIDGE_VERSION, event: "context", data: context });
+  await vi.waitFor(() => expect(h.onContext).toHaveBeenCalledTimes(1));
+  expect(h.onTheme).not.toHaveBeenCalled();
+  bridge.close();
 });
 
-test("disconnect removes the listener", () => {
-  const { host, self, listening } = fakeWindows();
-  const disconnect = connectBridge(host, self, { onContext: vi.fn(), onTheme: vi.fn() });
-  disconnect();
-  expect(listening()).toBe(false);
+test("requests resolve with the result and reject with the bridge error", async () => {
+  const { host, requests } = fakeHost((msg) =>
+    msg.method === "sessions.list"
+      ? { result: [{ id: "s" }] }
+      : msg.method === "openSession"
+        ? { error: { code: "invalid_params", message: "bad id" } }
+        : undefined,
+  );
+  const bridge = connectBridge(host, "", handlers());
+  await expect(bridge.request("sessions.list")).resolves.toEqual([{ id: "s" }]);
+  const err = await bridge.request("openSession", { id: 7 }).catch((e) => e);
+  expect(err).toBeInstanceOf(BridgeError);
+  expect(err).toMatchObject({ code: "invalid_params", message: "bad id" });
+  expect(requests).toEqual([
+    { aoeBridge: BRIDGE_VERSION, id: 2, method: "sessions.list" },
+    { aoeBridge: BRIDGE_VERSION, id: 3, method: "openSession", params: { id: 7 } },
+  ]);
+  bridge.close();
+});
+
+test("an unanswered request times out", async () => {
+  vi.useFakeTimers();
+  const { host } = fakeHost();
+  const bridge = connectBridge(host, "", handlers());
+  const pending = bridge.request("plugins.uiState");
+  vi.advanceTimersByTime(5_000);
+  await expect(pending).rejects.toMatchObject({ code: "timeout" });
+  bridge.close();
+});
+
+test("close rejects pending requests", async () => {
+  const { host } = fakeHost();
+  const bridge = connectBridge(host, "", handlers());
+  const pending = bridge.request("sessions.list");
+  bridge.close();
+  await expect(pending).rejects.toMatchObject({ code: "closed" });
 });
