@@ -15,10 +15,37 @@ body {
   color: var(--color-text-muted);
 }
 
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.toolbar {
+  padding: 12px 12px 0;
+}
+
+.search {
+  width: 280px;
+  max-width: 100%;
+  padding: 6px 10px;
+  color: inherit;
+  font: inherit;
+  background: var(--color-surface-800);
+  border: 1px solid var(--color-surface-700);
+  border-radius: 6px;
+}
+
+.search:focus-visible {
+  outline: 2px solid var(--color-accent-500);
+  outline-offset: -1px;
+}
+
 .board {
   display: flex;
+  flex: 1;
   gap: 12px;
-  height: 100vh;
+  min-height: 0;
   padding: 12px;
   overflow-x: auto;
 }

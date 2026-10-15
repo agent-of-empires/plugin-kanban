@@ -107,3 +107,17 @@ test("applies the theme the dashboard pushes, and replaces it on change", async 
   await expect(body).toHaveCSS("background-color", "rgb(9, 9, 9)");
   expect(await rootVar("--color-favorite")).toBe("");
 });
+
+test("the search box hides non-matching Cards and counts matches per Column", async ({ page }) => {
+  const counts = board(page).locator("section h2 .count");
+  await expect(counts).toHaveText(["2", "1", "1", "0", "0", "1"]);
+
+  await board(page).getByRole("searchbox", { name: "Search sessions" }).fill("FEAT/board");
+  await expect(board(page).getByRole("button")).toHaveCount(1);
+  await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
+  await expect(counts).toHaveText(["0/2", "0/1", "1/1", "0/0", "0/0", "0/1"]);
+
+  await board(page).getByRole("searchbox", { name: "Search sessions" }).fill("");
+  await expect(board(page).getByRole("button")).toHaveCount(5);
+  await expect(counts).toHaveText(["2", "1", "1", "0", "0", "1"]);
+});
