@@ -6,9 +6,10 @@ An [Agent of Empires](https://github.com/agent-of-empires/agent-of-empires)
 plugin. It adds a **Board** page (the `page` UI slot) backed by a Node worker
 that speaks JSON-RPC 2.0 over newline-delimited JSON on stdio.
 
-> **Status:** scaffold. The page slot needs core
+> **Status:** early. The Board renders read-only; moving Cards and editing
+> Columns come later. The page slot needs core
 > [agent-of-empires#4459](https://github.com/agent-of-empires/agent-of-empires/issues/4459)
-> (`api_version` 16); current releases refuse this manifest.
+> (`api_version` 16).
 
 ## Requirements
 
@@ -27,6 +28,41 @@ aoe plugin install gh:agent-of-empires/plugin-kanban
 
 Install from a checkout without `node_modules/`: the installer rejects symlinks,
 and `npm ci` creates them under `node_modules/.bin`.
+
+## The Board
+
+Every Session that is not Dismissed (archived, snoozed or trashed) is one
+**Card** in exactly one **Column**. There are two kinds of Column:
+
+- **Stage** columns record where a Session sits in your workflow. A Session's
+  Stage is sticky: it stays until you move the Card.
+- **Signal** columns pull a Card in while one of their **Rules** matches, and
+  release it back to its Stage when none does.
+
+Placement: Signal columns are checked left to right and the first one whose
+Rules match wins; otherwise the Card sits in its Stage column. A Session with
+no Stage, or one whose Stage column no longer exists, goes to the leftmost
+Stage column. A Card held by a Signal column shows its Stage as a chip.
+
+Within a Column, Cards follow the sidebar's attention order: urgent first,
+then Waiting, Error (or a plugin column toned danger or warn), Idle, Running,
+Stopped, then most recent activity.
+
+The default Board:
+
+| Column | Kind | Holds a Session when |
+|---|---|---|
+| Action needed | Signal | Status is Waiting, it is urgent, it has pending Approvals, or any plugin row column is toned danger or warn |
+| Error | Signal | Status is Error, or its last error is set |
+| In progress | Stage | |
+| Needs testing | Stage | |
+| Waiting for review | Stage | |
+| Done | Stage | |
+
+A Rule is a list of conditions that must all hold; a Column matches when any
+of its Rules does. Urgent, unread, last error, pending Approvals and last
+activity are not yet exposed to plugin pages by the dashboard, so Rules on
+them do not match for now.
 
 ## Where data lives
 
@@ -66,6 +102,8 @@ with `console.error`, which goes to the worker log file.
 - `src/worker/`: worker, bundled by esbuild into `dist/worker.js`
 - `src/page/`: React page, bundled by Vite into a single self-contained
   `dist/index.html`. `bridge.ts` holds the page to dashboard message format.
+- `src/shared/`: Board config and the pure Board model (placement, Rules,
+  ordering), shared by the worker and the page
 - `tests/`: Vitest tests; `tests/e2e/` Playwright tests hosting the page in a
   sandboxed iframe as the dashboard does
 
