@@ -48,6 +48,8 @@ export interface Card {
   repo: string;
   branch?: string;
   badges: Badge[];
+  // Id of the Session's resolved Stage column, wherever the Card sits.
+  stageId: string;
   // Title of the Session's Stage, set when the Card sits in a Signal column.
   stageChip?: string;
 }
@@ -197,6 +199,7 @@ export function buildBoard(sessions: BridgeSession[], entries: UiEntry[], snapsh
         repo: basename(repo),
         branch: session.worktree?.branch ?? session.workspace_repos?.[0]?.branch ?? undefined,
         badges: badges(session, entries),
+        stageId: stage.id,
         stageChip: signal ? stage.title : undefined,
       });
   }
