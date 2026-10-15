@@ -6,8 +6,8 @@ An [Agent of Empires](https://github.com/agent-of-empires/agent-of-empires)
 plugin. It adds a **Board** page (the `page` UI slot) backed by a Node worker
 that speaks JSON-RPC 2.0 over newline-delimited JSON on stdio.
 
-> **Status:** early. Columns are editable; moving Cards and editing Rules
-> come later. The page slot needs core
+> **Status:** early. Columns are editable and Cards movable; editing Rules
+> comes later. The page slot needs core
 > [agent-of-empires#4459](https://github.com/agent-of-empires/agent-of-empires/issues/4459)
 > (`api_version` 16).
 
@@ -75,6 +75,14 @@ them do not match for now.
 
 The search box matches title, path, repo, branch and agent, like the sidebar
 filter. Group names are not exposed to plugin pages yet, so they do not match.
+
+### Moving Cards
+
+To set a Session's Stage, drag its Card onto a Stage column (on touch, long
+press first), or pick one under **Move to** from the Card's `⋯` button or
+right-click menu. A Card dragged out of a Signal column records the new Stage
+but stays until the Signal clears, showing the Stage as its chip. Read-only
+and CityHall dashboards can't move Cards.
 
 ## Where data lives
 
