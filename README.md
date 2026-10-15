@@ -28,6 +28,21 @@ aoe plugin install gh:agent-of-empires/plugin-kanban
 Install from a checkout without `node_modules/`: the installer rejects symlinks,
 and `npm ci` creates them under `node_modules/.bin`.
 
+## Where data lives
+
+The worker owns all Board state, so every device sees the same Board.
+
+- **Stage** of each Session: that Session's plugin metadata, key `stage`
+  (a Stage column id). It follows the Session and goes away with it.
+- **Board config** (Columns, Rules, enter-actions): one JSON value in the
+  plugin's storage, key `config`. Until you change the Board, nothing is stored
+  and the default Board applies.
+- **Snapshot**: the worker republishes `{stages, config}` as the Board page's
+  UI state, which the page reads. It is a copy of the two above, capped at
+  64 KiB; a change that would push it over is refused and logged.
+
+Publishing the snapshot needs a core release where the `page` slot accepts UI state.
+
 ## Develop
 
 ```bash
