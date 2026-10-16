@@ -92,14 +92,26 @@ export function findSnapshot(entries: UiEntry[], pluginId: string, pageId: strin
 // Dismissed matches core's Instance::is_dismissed.
 const isDismissed = (s: BridgeSession) => s.archived || s.snoozed || s.trashed;
 
-// 0 and false count as empty, so `pending_approvals is set` skips a zero count
-// and `urgent is set` a false flag.
+// 0 and false count as empty for "is set" and "is empty", so `pending_approvals
+// is set` skips a zero count and `urgent is set` a false flag.
 const isEmpty = (v: unknown) => v === undefined || v === null || v === "" || v === 0 || v === false;
 
 const matches = (want: string, got: string) => want === "*" || want === got;
 
 const rowColumns = (entries: UiEntry[], session: BridgeSession) =>
   entries.filter((e) => e.session_id === session.id && e.slot === "row-column");
+
+// Slot ids of the row columns on screen, by plugin id: what a plugin
+// condition can pick from.
+export function rowColumnSlots(entries: UiEntry[]): Record<string, string[]> {
+  const slots: Record<string, string[]> = {};
+  for (const e of entries) {
+    if (e.slot !== "row-column") continue;
+    const ids = (slots[e.plugin_id] ??= []);
+    if (!ids.includes(e.id)) ids.push(e.id);
+  }
+  return slots;
+}
 
 function candidates(field: Condition["field"], session: BridgeSession, entries: UiEntry[]): unknown[] {
   if (typeof field === "string") return [session[field]];
@@ -110,14 +122,17 @@ function candidates(field: Condition["field"], session: BridgeSession, entries: 
 }
 
 // Several plugin entries can match one condition: "is" needs any of them to
-// equal the value, "is not" needs a value and none equal to it.
+// equal the value, "is not" needs a value and none equal to it. "is" and "is
+// not" compare the real value, so `urgent is false` matches a false flag that
+// "is empty" also matches.
 function holds(c: Condition, session: BridgeSession, entries: UiEntry[]): boolean {
-  const set = candidates(c.field, session, entries).filter((v) => !isEmpty(v));
+  const values = candidates(c.field, session, entries).filter((v) => v !== undefined && v !== null);
+  const set = values.filter((v) => !isEmpty(v));
   switch (c.op) {
     case "is":
-      return set.some((v) => v === c.value);
+      return values.some((v) => v === c.value);
     case "is not":
-      return set.length > 0 && set.every((v) => v !== c.value);
+      return values.length > 0 && values.every((v) => v !== c.value);
     case "is set":
       return set.length > 0;
     case "is empty":

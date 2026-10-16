@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { type Column, type Config, DEFAULT_CONFIG } from "../src/shared/board-config";
-import { type BridgeSession, type UiEntry, buildBoard, filterBoard, findSnapshot } from "../src/shared/board-model";
+import { type Column, type Condition, type Config, DEFAULT_CONFIG } from "../src/shared/board-config";
+import { type BridgeSession, type UiEntry, buildBoard, filterBoard, findSnapshot, rowColumnSlots } from "../src/shared/board-model";
 
 const session = (id: string, extra: Partial<BridgeSession> = {}): BridgeSession => ({
   id,
@@ -113,6 +113,70 @@ test("absent fields never match is, is not or is set, and match is empty", () =>
   expect(inSignal([[{ field: "urgent", op: "is not", value: true }]], s)).toBe(false);
   expect(inSignal([[{ field: "unread", op: "is set" }]], s)).toBe(false);
   expect(inSignal([[{ field: "unread", op: "is empty" }]], s)).toBe(true);
+});
+
+const gh = (attr: "tone" | "text") => ({ plugin_id: "gh", slot_id: "pr", attr });
+const pr = (payload: Record<string, unknown>) => [rowColumn("s", payload, "gh", "pr")];
+
+test.each<[string, Condition, Partial<BridgeSession>, UiEntry[], boolean]>([
+  ["status is", { field: "status", op: "is", value: "Running" }, { status: "Running" }, [], true],
+  ["status is, other", { field: "status", op: "is", value: "Running" }, {}, [], false],
+  ["status is not", { field: "status", op: "is not", value: "Running" }, {}, [], true],
+  ["status is not, same", { field: "status", op: "is not", value: "Idle" }, {}, [], false],
+  ["status is set", { field: "status", op: "is set" }, {}, [], true],
+  ["status is empty", { field: "status", op: "is empty" }, {}, [], false],
+  ["urgent is true", { field: "urgent", op: "is", value: true }, { urgent: true }, [], true],
+  ["urgent is false, false", { field: "urgent", op: "is", value: false }, { urgent: false }, [], true],
+  ["urgent is false, true", { field: "urgent", op: "is", value: false }, { urgent: true }, [], false],
+  ["urgent is not true, false", { field: "urgent", op: "is not", value: true }, { urgent: false }, [], true],
+  ["urgent is set, false", { field: "urgent", op: "is set" }, { urgent: false }, [], false],
+  ["urgent is empty, false", { field: "urgent", op: "is empty" }, { urgent: false }, [], true],
+  ["unread is true", { field: "unread", op: "is", value: true }, { unread: true }, [], true],
+  ["unread is not true", { field: "unread", op: "is not", value: true }, { unread: true }, [], false],
+  ["unread is set", { field: "unread", op: "is set" }, { unread: true }, [], true],
+  ["unread is empty", { field: "unread", op: "is empty" }, { unread: true }, [], false],
+  ["approvals is 2", { field: "pending_approvals", op: "is", value: 2 }, { pending_approvals: 2 }, [], true],
+  ["approvals is 0, zero", { field: "pending_approvals", op: "is", value: 0 }, { pending_approvals: 0 }, [], true],
+  ["approvals is not 0, two", { field: "pending_approvals", op: "is not", value: 0 }, { pending_approvals: 2 }, [], true],
+  ["approvals is not 0, zero", { field: "pending_approvals", op: "is not", value: 0 }, { pending_approvals: 0 }, [], false],
+  ["approvals is set, zero", { field: "pending_approvals", op: "is set" }, { pending_approvals: 0 }, [], false],
+  ["approvals is empty, zero", { field: "pending_approvals", op: "is empty" }, { pending_approvals: 0 }, [], true],
+  ["last error is", { field: "last_error", op: "is", value: "boom" }, { last_error: "boom" }, [], true],
+  ["last error is not", { field: "last_error", op: "is not", value: "boom" }, { last_error: "bang" }, [], true],
+  ["last error is set, blank", { field: "last_error", op: "is set" }, { last_error: "" }, [], false],
+  ["last error is empty, null", { field: "last_error", op: "is empty" }, { last_error: null }, [], true],
+  ["plugin tone is", { field: gh("tone"), op: "is", value: "danger" }, {}, pr({ tone: "danger" }), true],
+  ["plugin tone is, other", { field: gh("tone"), op: "is", value: "danger" }, {}, pr({ tone: "info" }), false],
+  ["plugin tone is not", { field: gh("tone"), op: "is not", value: "danger" }, {}, pr({ tone: "info" }), true],
+  ["plugin tone is not, absent", { field: gh("tone"), op: "is not", value: "danger" }, {}, [], false],
+  ["plugin tone is set", { field: gh("tone"), op: "is set" }, {}, pr({ tone: "info" }), true],
+  ["plugin tone is empty", { field: gh("tone"), op: "is empty" }, {}, pr({ text: "x" }), true],
+  ["plugin text is", { field: gh("text"), op: "is", value: "open" }, {}, pr({ text: "open" }), true],
+  ["plugin text is, case", { field: gh("text"), op: "is", value: "open" }, {}, pr({ text: "Open" }), false],
+  ["plugin text is not", { field: gh("text"), op: "is not", value: "open" }, {}, pr({ text: "merged" }), true],
+  ["plugin text is set", { field: gh("text"), op: "is set" }, {}, pr({ text: "open" }), true],
+  ["plugin text is empty", { field: gh("text"), op: "is empty" }, {}, pr({ text: "open" }), false],
+])("%s", (_name, condition, extra, entries, want) => {
+  expect(inSignal([[condition]], session("s", extra), entries)).toBe(want);
+});
+
+test("Rules OR on a Column", () => {
+  const rules: Column["rules"] = [[{ field: "status", op: "is", value: "Error" }], [{ field: "urgent", op: "is set" }]];
+  expect(inSignal(rules, session("s"))).toBe(false);
+  expect(inSignal(rules, session("s", { status: "Error" }))).toBe(true);
+  expect(inSignal(rules, session("s", { urgent: true }))).toBe(true);
+  expect(inSignal([], session("s", { status: "Error" }))).toBe(false);
+});
+
+test("rowColumnSlots lists each plugin's row-column slots once", () => {
+  const entries = [
+    rowColumn("a", {}, "gh", "pr"),
+    rowColumn("b", {}, "gh", "pr"),
+    rowColumn("a", {}, "gh", "checks"),
+    rowColumn("a", {}, "ci", "build"),
+    { ...rowColumn("a", {}, "gh", "badge"), slot: "row-badge" },
+  ];
+  expect(rowColumnSlots(entries)).toEqual({ gh: ["pr", "checks"], ci: ["build"] });
 });
 
 test("conditions AND inside a Rule", () => {
