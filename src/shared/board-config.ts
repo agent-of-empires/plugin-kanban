@@ -68,7 +68,43 @@ export const DEFAULT_CONFIG: Config = {
   ],
 };
 
-export type ParseResult = { ok: true; config: Config } | { ok: false; error: string };
+// Column edits made by the page. Each returns a new config and keeps every
+// field it does not change, so the shipped Rules survive a rename or a move.
+
+// Opaque and never derived from the title: Sessions keep a deleted Stage
+// column's id in their metadata, so a reused id would pull them back in.
+export function newColumnId(taken: readonly string[]): string {
+  let id: string;
+  do id = `col-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  while (taken.includes(id));
+  return id;
+}
+
+export function addColumn(config: Config, title: string, kind: Column["kind"]): Config {
+  const id = newColumnId(config.columns.map((c) => c.id));
+  return { ...config, columns: [...config.columns, { id, title, kind, rules: [], on_enter: "none" }] };
+}
+
+export const renameColumn = (config: Config, id: string, title: string): Config => ({
+  ...config,
+  columns: config.columns.map((c) => (c.id === id ? { ...c, title } : c)),
+});
+
+// undefined when `id` is the last Stage column, which the Board cannot lose.
+export function deleteColumn(config: Config, id: string): Config | undefined {
+  const columns = config.columns.filter((c) => c.id !== id);
+  return columns.some((c) => c.kind === "stage") ? { ...config, columns } : undefined;
+}
+
+export function moveColumn(config: Config, id: string, to: number): Config {
+  const columns = config.columns.filter((c) => c.id !== id);
+  const moved = config.columns.find((c) => c.id === id);
+  if (!moved) return config;
+  columns.splice(to, 0, moved);
+  return { ...config, columns };
+}
+
+export type ParseResult ={ ok: true; config: Config } | { ok: false; error: string };
 
 const SESSION_FIELDS: readonly unknown[] = ["status", "urgent", "unread", "pending_approvals", "last_error"];
 const OPS: readonly unknown[] = ["is", "is not", "is set", "is empty"];

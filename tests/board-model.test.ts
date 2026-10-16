@@ -204,6 +204,10 @@ test("findSnapshot reads the page entry and falls back to the default config", (
     config: custom,
   });
   expect(findSnapshot([entry({ config: { version: 9 } })], "k", "board")).toEqual({ stages: {}, config: DEFAULT_CONFIG });
+  expect(findSnapshot([entry({ stages: { a: "done" } })], "k", "board")).toEqual({
+    stages: { a: "done" },
+    config: DEFAULT_CONFIG,
+  });
   expect(findSnapshot([entry({ config: custom }, { plugin_id: "other" })], "k", "board").config).toBe(DEFAULT_CONFIG);
   expect(findSnapshot([], "k", "board")).toEqual({ stages: {}, config: DEFAULT_CONFIG });
 });

@@ -72,7 +72,7 @@ test("renders the default Board from bridge data", async ({ page }) => {
   ]);
 
   const action = column(page, "action-needed");
-  await expect(action.getByRole("button")).toHaveCount(2);
+  await expect(action.locator("li")).toHaveCount(2);
   await expect(action.getByTestId("card-waiting").getByTestId("stage-chip")).toHaveText("Needs testing");
   await expect(action.getByTestId("card-flagged").getByTestId("stage-chip")).toHaveText("In progress");
   await expect(column(page, "error").getByTestId("card-broken")).toBeVisible();
@@ -113,11 +113,125 @@ test("the search box hides non-matching Cards and counts matches per Column", as
   await expect(counts).toHaveText(["2", "1", "1", "0", "0", "1"]);
 
   await board(page).getByRole("searchbox", { name: "Search sessions" }).fill("FEAT/board");
-  await expect(board(page).getByRole("button")).toHaveCount(1);
+  await expect(board(page).locator("li")).toHaveCount(1);
   await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
   await expect(counts).toHaveText(["0/2", "0/1", "1/1", "0/0", "0/0", "0/1"]);
 
   await board(page).getByRole("searchbox", { name: "Search sessions" }).fill("");
-  await expect(board(page).getByRole("button")).toHaveCount(5);
+  await expect(board(page).locator("li")).toHaveCount(5);
   await expect(counts).toHaveText(["2", "1", "1", "0", "0", "1"]);
 });
+
+type Harness = {
+  startPage: (f: unknown) => void;
+  fixtures: () => typeof fixtures;
+  actions: { method: string; params: { config: { columns: { id: string; title: string; kind: string }[] } } }[];
+};
+// Runs fn in the harness window with a JSON argument; fn sees no closure.
+const harness = <T, A = undefined>(page: Page, fn: (h: Harness, arg: A) => T, arg?: A): Promise<T> =>
+  page.evaluate(`(${fn})(window, ${JSON.stringify(arg ?? null)})`);
+const titles = (page: Page) => board(page).locator("section h2 .truncate");
+const DEFAULT_TITLES = ["Action needed", "Error", "In progress", "Needs testing", "Waiting for review", "Done"];
+
+// Drags with small mouse steps: the Board's pointer sensor waits for 5px.
+async function dragHeader(page: Page, from: string, to: string) {
+  const box = async (title: string) => (await board(page).getByRole("region", { name: title }).locator("h2").boundingBox())!;
+  const [a, b] = [await box(from), await box(to)];
+  await page.mouse.move(a.x + 20, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 20, b.y + b.height / 2, { steps: 20 });
+  await page.mouse.up();
+}
+
+test("adds, renames, reorders and deletes Columns through config.set", async ({ page }) => {
+  const b = board(page);
+  await expect(titles(page)).toHaveText(DEFAULT_TITLES);
+
+  await b.getByRole("button", { name: "+ Add column" }).click();
+  const add = b.getByRole("dialog", { name: "Add column" });
+  await expect(add).toContainText("the leftmost match holds the Card; drag Columns to change that order");
+  await add.getByLabel("Name").fill("  Blocked  ");
+  await add.getByLabel(/^Signal/).check();
+  await add.getByRole("button", { name: "Save" }).click();
+  await expect(titles(page)).toHaveText([...DEFAULT_TITLES, "Blocked"]);
+
+  await b.getByRole("button", { name: "Edit column Blocked", exact: true }).click();
+  const edit = b.getByRole("dialog", { name: "Edit column" });
+  await expect(edit.getByLabel(/^Signal/)).toBeChecked();
+  await expect(edit.getByLabel(/^Signal/)).toBeDisabled();
+  await expect(edit.getByLabel(/^Stage/)).toBeDisabled();
+  await edit.getByLabel("Name").fill("Blocked on me");
+  await edit.getByLabel("Name").press("Enter");
+  await expect(titles(page)).toHaveText([...DEFAULT_TITLES, "Blocked on me"]);
+
+  // "shipped" has Stage done; with Done gone it falls to the leftmost Stage.
+  await b.getByRole("button", { name: "Edit column Done", exact: true }).click();
+  await b.getByRole("dialog", { name: "Edit column" }).getByRole("button", { name: "Delete" }).click();
+  await expect(titles(page)).toHaveText([...DEFAULT_TITLES.slice(0, -1), "Blocked on me"]);
+  await expect(column(page, "in-progress").getByTestId("card-shipped")).toBeVisible();
+
+  // Last on purpose: dnd-kit swallows clicks for 50ms after a drop.
+  await dragHeader(page, "Blocked on me", "Action needed");
+  const after = ["Blocked on me", ...DEFAULT_TITLES.slice(0, -1)];
+  await expect(titles(page)).toHaveText(after);
+
+  // Edits render before the bridge delivers them.
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(4);
+  const sent = await harness(page, (h) => h.actions);
+  expect(sent.map((a) => a.method)).toEqual(["config.set", "config.set", "config.set", "config.set"]);
+  const last = sent.at(-1)!.params.config.columns;
+  expect(last.map((c) => c.title)).toEqual(after);
+  expect(last[0]).toMatchObject({ kind: "signal", id: expect.stringMatching(/^col-/) });
+
+  // Another device reads the same snapshot.
+  await harness(page, (h) => h.startPage(h.fixtures()));
+  await expect(titles(page)).toHaveText(after);
+  await expect(b.getByRole("alert")).toHaveCount(0);
+});
+
+test("the last Stage column cannot be deleted, and Cancel changes nothing", async ({ page }) => {
+  const columns = [
+    { id: "action-needed", title: "Action needed", kind: "signal", rules: [], on_enter: "none" },
+    { id: "done", title: "Done", kind: "stage", rules: [], on_enter: "none" },
+  ];
+  const entries = [{ plugin_id: PLUGIN, slot: "page", id: "board", payload: { config: { version: 1, columns } } }];
+  await harness(page, (h, e) => h.startPage({ ...h.fixtures(), entries: e }), entries);
+  await expect(titles(page)).toHaveText(["Action needed", "Done"]);
+
+  await board(page).getByRole("button", { name: "Edit column Done", exact: true }).click();
+  const edit = board(page).getByRole("dialog", { name: "Edit column" });
+  await expect(edit.getByRole("button", { name: "Delete" })).toBeDisabled();
+  await expect(edit).toContainText("The Board needs at least one Stage column.");
+  await edit.getByLabel("Name").fill("Gone");
+  await edit.getByRole("button", { name: "Cancel" }).click();
+  await expect(edit).toBeHidden();
+  await expect(titles(page)).toHaveText(["Action needed", "Done"]);
+  expect(await harness(page, (h) => h.actions)).toEqual([]);
+});
+
+test("a rejected save rolls the edit back and says so", async ({ page }) => {
+  await harness(page, (h) => h.startPage({ ...h.fixtures(), rejectActions: true }));
+  await board(page).getByRole("button", { name: "+ Add column" }).click();
+  const add = board(page).getByRole("dialog", { name: "Add column" });
+  await add.getByLabel("Name").fill("Lost");
+  await add.getByRole("button", { name: "Save" }).click();
+  await expect(board(page).getByRole("alert")).toHaveText("Couldn't save the Board.");
+  await expect(titles(page)).toHaveText(DEFAULT_TITLES);
+});
+
+for (const flag of ["readOnly", "cityhall"] as const) {
+  test(`${flag} context hides Column editing`, async ({ page }) => {
+    await harness(
+      page,
+      (h, key) => {
+        const f = h.fixtures();
+        h.startPage({ ...f, context: { ...f.context, [key]: true } });
+      },
+      flag,
+    );
+    await expect(titles(page)).toHaveText(DEFAULT_TITLES);
+    await expect(board(page).getByRole("button", { name: "+ Add column" })).toHaveCount(0);
+    await expect(board(page).getByRole("button", { name: /^Edit column/ })).toHaveCount(0);
+    await expect(board(page).locator("h2[aria-roledescription]")).toHaveCount(0);
+  });
+}

@@ -1,5 +1,13 @@
 import { expect, test } from "vitest";
-import { DEFAULT_CONFIG, parseConfig } from "../src/shared/board-config";
+import {
+  DEFAULT_CONFIG,
+  addColumn,
+  deleteColumn,
+  moveColumn,
+  newColumnId,
+  parseConfig,
+  renameColumn,
+} from "../src/shared/board-config";
 
 const withColumns = (columns: unknown[]) => ({ version: 1, columns });
 const stage = { id: "s", title: "S", kind: "stage", rules: [], on_enter: "none" };
@@ -38,4 +46,48 @@ test.each([
   const result = parseConfig(value);
   expect(result.ok).toBe(false);
   expect(result.ok ? "" : result.error).toContain(error);
+});
+
+const ids = (config: { columns: { id: string }[] }) => config.columns.map((c) => c.id);
+const valid = (config: unknown) => expect(parseConfig(config)).toEqual({ ok: true, config });
+
+test("edits on the default Board stay valid and keep the shipped Rules", () => {
+  const renamed = renameColumn(DEFAULT_CONFIG, "action-needed", "Look at me");
+  valid(renamed);
+  expect(renamed.columns[0]).toEqual({ ...DEFAULT_CONFIG.columns[0], title: "Look at me" });
+  expect(renamed.columns.slice(1)).toEqual(DEFAULT_CONFIG.columns.slice(1));
+
+  const moved = moveColumn(DEFAULT_CONFIG, "error", 0);
+  valid(moved);
+  expect(ids(moved).slice(0, 2)).toEqual(["error", "action-needed"]);
+  expect(moved.columns[0]).toBe(DEFAULT_CONFIG.columns[1]);
+  expect(moveColumn(DEFAULT_CONFIG, "nope", 0)).toBe(DEFAULT_CONFIG);
+
+  const added = addColumn(DEFAULT_CONFIG, "Blocked", "signal");
+  valid(added);
+  expect(added.columns.at(-1)).toMatchObject({ title: "Blocked", kind: "signal", rules: [], on_enter: "none" });
+  expect(ids(added).slice(0, -1)).toEqual(ids(DEFAULT_CONFIG));
+
+  const deleted = deleteColumn(DEFAULT_CONFIG, "done");
+  valid(deleted);
+  expect(ids(deleted!)).toEqual(ids(DEFAULT_CONFIG).filter((id) => id !== "done"));
+});
+
+test("a rename keeps the Column's id and kind", () => {
+  const renamed = renameColumn(DEFAULT_CONFIG, "done", "Shipped").columns.find((c) => c.title === "Shipped");
+  expect(renamed).toMatchObject({ id: "done", kind: "stage" });
+});
+
+test("the last Stage column cannot be deleted", () => {
+  const one = { version: 1 as const, columns: [DEFAULT_CONFIG.columns[0], DEFAULT_CONFIG.columns[5]] };
+  expect(deleteColumn(one, "done")).toBeUndefined();
+  expect(deleteColumn(one, "action-needed")).toEqual({ version: 1, columns: [DEFAULT_CONFIG.columns[5]] });
+});
+
+test("new Column ids are opaque, so a re-added Column never inherits old Stages", () => {
+  const first = addColumn(DEFAULT_CONFIG, "Done", "stage").columns.at(-1)!.id;
+  const second = addColumn(DEFAULT_CONFIG, "Done", "stage").columns.at(-1)!.id;
+  expect(first).not.toBe("done");
+  expect(first).not.toBe(second);
+  expect(newColumnId(["col-x"])).toMatch(/^col-[0-9a-z]+$/);
 });

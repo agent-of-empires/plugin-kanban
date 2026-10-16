@@ -9,12 +9,16 @@
     <iframe id="page" sandbox="allow-scripts" style="width: 100%; height: 90vh"></iframe>
     <script>
       // A fake dashboard side of bridge v1. The test calls startPage(fixtures)
-      // and reads window.opened for openSession calls.
+      // and reads window.opened for openSession calls and window.actions for
+      // worker actions. config.set lands in the page snapshot, as the worker
+      // would publish it; window.fixtures() returns that state for a reload.
       const NONCE = "test-nonce";
-      const frame = document.getElementById("page");
+      let frame = document.getElementById("page");
       let port = null;
       let fixtures = null;
       window.opened = [];
+      window.actions = [];
+      window.fixtures = () => fixtures;
 
       const send = (msg) => port.postMessage({ aoeBridge: 1, ...msg });
       function answer(method, params) {
@@ -23,6 +27,18 @@
         if (method === "openSession") {
           window.opened.push(params.id);
           return { result: null };
+        }
+        if (method === "action") {
+          if (fixtures.rejectActions) return { error: { code: "failed", message: "worker unreachable" } };
+          window.actions.push(params);
+          if (params.method === "config.set") {
+            const { pluginId, pageId } = fixtures.context;
+            const own = (e) => e.plugin_id === pluginId && e.slot === "page" && e.id === pageId && !e.session_id;
+            let entry = fixtures.entries.find(own);
+            if (!entry) fixtures.entries.push((entry = { plugin_id: pluginId, slot: "page", id: pageId, payload: {} }));
+            entry.payload = { ...entry.payload, config: params.params.config };
+          }
+          return { result: { baselineRevision: window.actions.length } };
         }
         return { error: { code: "unknown_method", message: `Unknown method ${method}.` } };
       }
@@ -39,6 +55,12 @@
 
       window.startPage = (f) => {
         fixtures = f;
+        // A fresh frame opens a fresh bridge, like reopening the page.
+        const next = frame.cloneNode();
+        next.removeAttribute("src");
+        frame.replaceWith(next);
+        frame = next;
+        port = null;
         frame.src = `/dist/index.html#${NONCE}`;
       };
       window.pushTheme = (theme) => send({ event: "theme", data: theme });

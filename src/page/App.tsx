@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { type Column, type Config, addColumn, deleteColumn, moveColumn, renameColumn } from "../shared/board-config";
 import { type BridgeSession, type UiEntry, buildBoard, findSnapshot } from "../shared/board-model";
-import { Board } from "./Board";
+import { Board, type Editor } from "./Board";
 import type { Bridge, BridgeContext } from "./bridge";
+import { ColumnDialog } from "./ColumnDialog";
 
 // The bridge has no change push, so the page polls.
 const POLL_MS = 2_000;
+// How long an edit shows before the snapshot must carry it back. An `action`
+// reply only acknowledges delivery; the worker drops a config it rejects.
+const CONFIRM_MS = 10_000;
 
 interface Data {
   sessions: BridgeSession[];
@@ -57,12 +62,26 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
     };
   }, [bridge, context]);
 
+  // An edit renders at once and holds until the snapshot carries the same config.
+  const [pending, setPending] = useState<Config | null>(null);
+  const pendingRef = useRef<Config | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [dialog, setDialog] = useState<Column | "new" | null>(null);
+
+  const snapshot = useMemo(() => data && context && findSnapshot(data.entries, context.pluginId, context.pageId), [data, context]);
+  useEffect(() => {
+    if (pending && snapshot && JSON.stringify(snapshot.config) === JSON.stringify(pending)) {
+      pendingRef.current = null;
+      setPending(null);
+    }
+  }, [snapshot, pending]);
+  const config = pending ?? snapshot?.config;
   const columns = useMemo(
-    () => data && context && buildBoard(data.sessions, data.entries, findSnapshot(data.entries, context.pluginId, context.pageId)),
-    [data, context],
+    () => data && snapshot && config && buildBoard(data.sessions, data.entries, { ...snapshot, config }),
+    [data, snapshot, config],
   );
 
-  if (!columns) {
+  if (!columns || !config) {
     return (
       <p className="notice" data-testid="board-status">
         {failed ? "Couldn't load sessions from the dashboard." : "Loading the Board..."}
@@ -71,5 +90,61 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
   }
   const openSession = (id: string) =>
     bridge.request("openSession", { id }).catch((e: Error) => console.error(`[kanban] openSession failed: ${e.message}`));
-  return <Board columns={columns} onOpen={openSession} />;
+
+  const save = (next: Config) => {
+    pendingRef.current = next;
+    setPending(next);
+    setSaveFailed(false);
+    // Only the latest edit may roll back, so an older timer never undoes a newer one.
+    const fail = () => {
+      if (pendingRef.current !== next) return;
+      pendingRef.current = null;
+      setPending(null);
+      setSaveFailed(true);
+    };
+    bridge.request("action", { method: "config.set", params: { config: next } }).then(
+      () => setTimeout(fail, CONFIRM_MS),
+      (e: Error) => {
+        console.error(`[kanban] config.set failed: ${e.message}`);
+        fail();
+      },
+    );
+  };
+  const editor: Editor | undefined =
+    context && !context.readOnly && !context.cityhall
+      ? {
+          onAdd: () => setDialog("new"),
+          onEdit: setDialog,
+          onMove: (id, to) => save(moveColumn(config, id, to)),
+        }
+      : undefined;
+  const editing = dialog === "new" ? null : dialog;
+
+  return (
+    <>
+      <Board columns={columns} onOpen={openSession} editor={editor} />
+      {editor && dialog && (
+        <ColumnDialog
+          column={editing}
+          canDelete={!!editing && !!deleteColumn(config, editing.id)}
+          onClose={() => setDialog(null)}
+          onSave={(title, kind) => {
+            if (!editing) save(addColumn(config, title, kind));
+            else if (title !== editing.title) save(renameColumn(config, editing.id, title));
+            setDialog(null);
+          }}
+          onDelete={() => {
+            const next = editing && deleteColumn(config, editing.id);
+            if (next) save(next);
+            setDialog(null);
+          }}
+        />
+      )}
+      {saveFailed && (
+        <p className="toast" role="alert">
+          Couldn't save the Board.
+        </p>
+      )}
+    </>
+  );
 }
