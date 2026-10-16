@@ -144,6 +144,14 @@ test.each([
   ["an empty file", "", "not valid JSON"],
   ["a nested unknown key", JSON.stringify(withColumns([{ ...stage, color: "red" }])), 'column 0: unknown key "color"'],
   ["a JSON array", "[]", "config: not an object"],
+  [
+    "a number too big to store",
+    JSON.stringify(withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: "pending_approvals", op: "is", value: 1 }]] }])).replace(
+      '"value":1',
+      '"value":1e400',
+    ),
+    "rule 0 condition 0: value must be a finite number",
+  ],
 ])("import rejects %s", (_name, text, error) => {
   const result = parseConfigJson(text);
   expect(result.ok ? "" : result.error).toContain(error);

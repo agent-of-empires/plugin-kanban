@@ -149,6 +149,8 @@ function checkCondition(c: unknown, where: string) {
   const needsValue = c.op === "is" || c.op === "is not";
   const hasValue = ["string", "number", "boolean"].includes(typeof c.value);
   if (needsValue !== hasValue) throw new Error(`${where}: "${String(c.op)}" ${needsValue ? "needs" : "takes no"} value`);
+  // JSON.parse reads 1e400 as Infinity, which JSON.stringify then writes as null.
+  if (typeof c.value === "number" && !Number.isFinite(c.value)) throw new Error(`${where}: value must be a finite number`);
 }
 
 function checkColumn(col: unknown, where: string) {
