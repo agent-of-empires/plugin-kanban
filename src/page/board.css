@@ -129,7 +129,8 @@ body {
 /* The Session the dashboard's split view shows. */
 .card.selected {
   border-color: var(--color-accent-500);
-  box-shadow: 0 0 0 1px var(--color-accent-500);
+  box-shadow: 0 0 0 2px var(--color-accent-500);
+  background: color-mix(in srgb, var(--color-accent-500) 14%, var(--color-surface-800));
 }
 
 .card.dragging {
