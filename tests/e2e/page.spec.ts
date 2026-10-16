@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { type Locator, type Page, expect, test } from "@playwright/test";
+import { type Locator, type Page, devices, expect, test } from "@playwright/test";
 
 const ORIGIN = "http://harness.test";
 // The daemon's page policy (core src/server/api/plugins.rs `PLUGIN_PAGE_CSP`).
@@ -86,6 +86,7 @@ test("renders the default Board from bridge data", async ({ page }) => {
   await expect(fresh.getByTestId("stage-chip")).toHaveCount(0);
 
   await expect(board(page).getByTestId("card-archived")).toHaveCount(0);
+  await expect(board(page).getByRole("navigation", { name: "Columns" })).toBeHidden();
 });
 
 test("clicking a Card opens its Session through the bridge", async ({ page }) => {
@@ -331,4 +332,65 @@ test.describe("moving Cards", () => {
       expect(await actions(page)).toEqual([]);
     });
   }
+});
+
+test.describe("phone", () => {
+  const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices["Pixel 7"];
+  test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });
+
+  const dots = (page: Page) => board(page).getByRole("navigation", { name: "Columns" }).getByRole("button");
+  const current = (page: Page) => board(page).getByRole("navigation", { name: "Columns" }).locator("[aria-current=true]");
+  const scrollTo = (page: Page, id: string) =>
+    board(page)
+      .locator("main")
+      .evaluate((el, id) => (el.scrollLeft = el.querySelector<HTMLElement>(`[data-testid=column-${id}]`)!.offsetLeft), id);
+
+  test("shows one Column per screen, with an indicator that follows and jumps", async ({ page }) => {
+    await expect(dots(page)).toHaveCount(6);
+    await expect(current(page)).toHaveAccessibleName("Action needed");
+    await expect(column(page, "action-needed")).toBeInViewport({ ratio: 0.95 });
+    await expect(column(page, "error")).not.toBeInViewport();
+
+    await dots(page).and(board(page).getByLabel("Done", { exact: true })).tap();
+    await expect(column(page, "done")).toBeInViewport({ ratio: 0.95 });
+    await expect(current(page)).toHaveAccessibleName("Done");
+
+    await scrollTo(page, "error");
+    await expect(current(page)).toHaveAccessibleName("Error");
+    await expect(column(page, "error")).toBeInViewport({ ratio: 0.95 });
+  });
+
+  test("Move to sets a Stage", async ({ page }) => {
+    await dots(page).nth(2).tap();
+    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Move to…" }).tap();
+    await board(page).getByRole("menu").getByRole("menuitemradio", { name: "Needs testing" }).tap();
+    await expect(column(page, "needs-testing").getByTestId("card-fresh")).toBeAttached();
+    await expect.poll(() => harness(page, (h) => h.actions)).toEqual([
+      { method: "stage.set", params: { sessionId: "fresh", columnId: "needs-testing" } },
+    ]);
+  });
+
+  test("a long press drags a Card to another Column", async ({ page }) => {
+    await dots(page).nth(2).tap();
+    await expect(column(page, "in-progress")).toBeInViewport({ ratio: 0.95 });
+    const a = (await column(page, "in-progress").getByTestId("card-fresh").boundingBox())!;
+    const [x, y] = [a.x + a.width / 2, a.y + a.height / 2];
+
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", points: { x: number; y: number }[]) =>
+      cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
+    await touch("touchStart", [{ x, y }]);
+    await page.waitForTimeout(400);
+    await touch("touchMove", [{ x: x + 10, y }]);
+    // Stands in for the edge autoscroll that brings the next Column under the finger.
+    await scrollTo(page, "needs-testing");
+    await touch("touchMove", [{ x: x + 12, y: y + 2 }]);
+    await touch("touchEnd", []);
+
+    await expect(column(page, "needs-testing").getByTestId("card-fresh")).toBeAttached();
+    await expect.poll(() => harness(page, (h) => h.actions)).toEqual([
+      { method: "stage.set", params: { sessionId: "fresh", columnId: "needs-testing" } },
+    ]);
+    expect(await harness(page, (h) => h.opened)).toEqual([]);
+  });
 });
