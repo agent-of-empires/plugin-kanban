@@ -6,14 +6,11 @@ An [Agent of Empires](https://github.com/agent-of-empires/agent-of-empires)
 plugin. It adds a **Board** page (the `page` UI slot) backed by a Node worker
 that speaks JSON-RPC 2.0 over newline-delimited JSON on stdio.
 
-> **Status:** early. Columns, Rules and Cards are editable. The page slot needs core
-> [agent-of-empires#4459](https://github.com/agent-of-empires/agent-of-empires/issues/4459)
-> (`api_version` 16).
-
 ## Requirements
 
-Node 22 or newer on the `PATH` of the AoE daemon. The built worker and page are
-committed under `dist/`, so install runs no build step and needs no `npm`.
+Agent of Empires 1.20.0 or newer, and Node 22 or newer on the `PATH` of the AoE
+daemon. The built worker and page are committed under `dist/`, so install runs
+no build step and needs no `npm`.
 
 ## Install into Agent of Empires
 
@@ -21,9 +18,12 @@ committed under `dist/`, so install runs no build step and needs no `npm`.
 # from a fresh clone (no node_modules/)
 aoe plugin install ./plugin-kanban
 
-# or from GitHub once published
+# or the latest release from GitHub
 aoe plugin install gh:agent-of-empires/plugin-kanban
 ```
+
+`agent-of-empires.kanban` is a reserved namespace, so a GitHub install only
+succeeds for a release that AoE pins in its featured index.
 
 Install from a checkout without `node_modules/`: the installer rejects symlinks,
 and `npm ci` creates them under `node_modules/.bin`.
@@ -167,7 +167,9 @@ here" in the Column dialog). Moving a Card there records the Stage, then, once
 the Board shows it written, archives or trashes the Session without asking, so
 the Card leaves the Board; restore it from the dashboard. Only a move triggers
 it: a restored Session sits in that Column untouched until moved again.
-Dropping it on the same Column retries a failed archive or trash.
+Dropping it on the same Column retries a failed archive or trash. Archive and
+trash need a core release newer than 1.20.0; on 1.20.0 the Stage is recorded and
+the Board reports that the archive or trash failed.
 
 ## Where data lives
 
@@ -182,8 +184,6 @@ The worker owns all Board state, so every device sees the same Board.
   UI state, which the page reads. It is a copy of the two above, capped at
   64 KiB; a change that would push it over is refused and logged.
 
-Publishing the snapshot needs a core release where the `page` slot accepts UI state.
-
 ## Develop
 
 ```bash
@@ -194,6 +194,8 @@ npm run build      # writes dist/worker.js and dist/index.html
 npm test           # Vitest, against the built worker
 npm run test:e2e   # Playwright, against the built page
 ```
+
+Releases are cut by CI; see [RELEASING.md](RELEASING.md).
 
 `dist/` is committed and must match the source: run `npm run build` and commit
 the result with your change. CI fails when they drift.
