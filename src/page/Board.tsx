@@ -1,9 +1,15 @@
 import {
+  type CollisionDetection,
   DndContext,
   type DragEndEvent,
+  type DragStartEvent,
+  DragOverlay,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
+  pointerWithin,
+  useDraggable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -14,7 +20,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Column } from "../shared/board-config";
 import { type BoardColumn, type Card, type FilteredColumn, filterBoard } from "../shared/board-model";
 
@@ -23,12 +29,26 @@ export interface Editor {
   onAdd: () => void;
   onEdit: (column: Column) => void;
   onMove: (id: string, to: number) => void;
+  onStage: (sessionId: string, columnId: string) => void;
 }
 
-function CardView({ card, onOpen }: { card: Card; onOpen: (id: string) => void }) {
+type OnMenu = (card: Card, x: number, y: number) => void;
+
+// The open "Move to" menu: its Card and viewport position.
+interface Menu {
+  card: Card;
+  x: number;
+  y: number;
+}
+
+// Card drags share the DndContext with Column reordering; the prefix keeps a
+// Session id from colliding with a Column id.
+const CARD = "card:";
+
+function CardBody({ card }: { card: Card }) {
   const { session, stageChip, badges } = card;
   return (
-    <button type="button" className="card" data-testid={`card-${session.id}`} onClick={() => onOpen(session.id)}>
+    <>
       <span className="card-title">
         <span className={`dot status-${session.status.toLowerCase()}`} title={session.status} aria-label={session.status} />
         <span className="truncate">{session.title}</span>
@@ -55,7 +75,50 @@ function CardView({ card, onOpen }: { card: Card; onOpen: (id: string) => void }
           ))}
         </span>
       )}
-    </button>
+    </>
+  );
+}
+
+function CardView({ card, onOpen, onMenu }: { card: Card; onOpen: (id: string) => void; onMenu?: OnMenu }) {
+  const { id } = card.session;
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
+    id: CARD + id,
+    data: card,
+    disabled: !onMenu,
+  });
+  // Keyboard drag is for Columns: Enter on a Card opens it, Move to moves it.
+  const pointer = Object.fromEntries(Object.entries(listeners ?? {}).filter(([name]) => name !== "onKeyDown"));
+  return (
+    <div
+      ref={setNodeRef}
+      className={`card${isDragging ? " dragging" : ""}`}
+      data-testid={`card-${id}`}
+      onContextMenu={
+        onMenu &&
+        ((e) => {
+          e.preventDefault();
+          onMenu(card, e.clientX, e.clientY);
+        })
+      }
+    >
+      <button type="button" className="card-open" {...attributes} {...pointer} onClick={() => onOpen(id)}>
+        <CardBody card={card} />
+      </button>
+      {onMenu && (
+        <button
+          type="button"
+          className="card-menu"
+          aria-label="Move to…"
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            onMenu(card, r.left, r.bottom);
+          }}
+        >
+          ⋯
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -65,19 +128,19 @@ function ColumnView({
   total,
   searching,
   onOpen,
+  onMenu,
   editor,
-}: FilteredColumn & { searching: boolean; onOpen: (id: string) => void; editor?: Editor }) {
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
-    id: column.id,
-    disabled: !editor,
-  });
+}: FilteredColumn & { searching: boolean; onOpen: (id: string) => void; onMenu: OnMenu; editor?: Editor }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging, isOver, active } =
+    useSortable({ id: column.id, disabled: !editor });
   // The header is the drag handle; spreading nothing keeps it inert when read-only.
   const handle = editor ? { ...attributes, ...listeners, "aria-roledescription": "draggable column" } : {};
+  const cardOver = isOver && String(active?.id).startsWith(CARD);
   return (
     <section
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={isDragging ? "column dragging" : "column"}
+      className={`column${isDragging ? " dragging" : ""}${cardOver ? " over" : ""}`}
       aria-label={column.title}
       data-testid={`column-${column.id}`}
     >
@@ -99,7 +162,7 @@ function ColumnView({
       <ul>
         {cards.map((card) => (
           <li key={card.session.id}>
-            <CardView card={card} onOpen={onOpen} />
+            <CardView card={card} onOpen={onOpen} onMenu={editor && onMenu} />
           </li>
         ))}
       </ul>
@@ -107,18 +170,111 @@ function ColumnView({
   );
 }
 
+// position: fixed escapes the Columns' scroll clipping, so no portal.
+// ponytail: Tab moves between items, no arrow keys or focus return; add them
+// if the menu grows past a short list of Stages.
+function MoveMenu({
+  menu,
+  stages,
+  onStage,
+  onClose,
+}: {
+  menu: Menu;
+  stages: Column[];
+  onStage: Editor["onStage"];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLUListElement>(null);
+
+  // Keeps the menu inside the viewport.
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    const { width, height } = el.getBoundingClientRect();
+    el.style.left = `${Math.max(4, Math.min(menu.x, innerWidth - width - 4))}px`;
+    el.style.top = `${Math.max(4, Math.min(menu.y, innerHeight - height - 4))}px`;
+  }, [menu]);
+
+  useEffect(() => {
+    ref.current?.querySelector("button")?.focus();
+    const outside = (e: Event) => {
+      if (!(e.target instanceof Node && ref.current?.contains(e.target))) onClose();
+    };
+    const escape = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    // Capture, since a Column's scroll does not bubble.
+    document.addEventListener("scroll", onClose, true);
+    window.addEventListener("resize", onClose);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+      document.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [menu, onClose]);
+
+  return (
+    <ul ref={ref} className="menu" role="menu" aria-label="Move to" data-testid="move-menu">
+      <li role="presentation" className="menu-title">
+        Move to
+      </li>
+      {stages.map((s) => (
+        <li key={s.id} role="none">
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={s.id === menu.card.stageId}
+            onClick={() => {
+              onStage(menu.card.session.id, s.id);
+              onClose();
+            }}
+          >
+            {s.title}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function Board({ columns, onOpen, editor }: { columns: BoardColumn[]; onOpen: (id: string) => void; editor?: Editor }) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => filterBoard(columns, query), [columns, query]);
   const searching = query.trim() !== "";
-  // The distance lets a click on the header pass without starting a drag.
+  const stages = useMemo(() => columns.filter((b) => b.column.kind === "stage").map((b) => b.column), [columns]);
+  // A short move before a mouse drag, so a click on a header or Card passes,
+  // and a long press before a touch drag, so swipes scroll.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+  // A Card lands on the Stage column under the pointer, or nowhere; a Column
+  // swaps with the nearest one.
+  const collisionDetection = useCallback<CollisionDetection>(
+    (args) =>
+      String(args.active.id).startsWith(CARD)
+        ? pointerWithin({
+            ...args,
+            droppableContainers: args.droppableContainers.filter((c) => stages.some((s) => s.id === c.id)),
+          })
+        : closestCenter(args),
+    [stages],
+  );
+  const [dragged, setDragged] = useState<Card | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const openMenu = useCallback<OnMenu>((card, x, y) => setMenu({ card, x, y }), []);
+
+  const onDragStart = ({ active }: DragStartEvent) => {
+    if (String(active.id).startsWith(CARD)) setDragged(active.data.current as Card);
+  };
   const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!editor || !over || active.id === over.id) return;
-    editor.onMove(String(active.id), columns.findIndex((b) => b.column.id === over.id));
+    setDragged(null);
+    if (!editor || !over) return;
+    const id = String(active.id);
+    if (id.startsWith(CARD)) editor.onStage(id.slice(CARD.length), String(over.id));
+    else if (id !== over.id) editor.onMove(id, columns.findIndex((b) => b.column.id === over.id));
   };
   return (
     <>
@@ -133,12 +289,28 @@ export function Board({ columns, onOpen, editor }: { columns: BoardColumn[]; onO
         />
       </header>
       <main className="board">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collisionDetection}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setDragged(null)}
+        >
           <SortableContext items={columns.map((b) => b.column.id)} strategy={horizontalListSortingStrategy}>
             {shown.map((b) => (
-              <ColumnView key={b.column.id} {...b} searching={searching} onOpen={onOpen} editor={editor} />
+              <ColumnView key={b.column.id} {...b} searching={searching} onOpen={onOpen} onMenu={openMenu} editor={editor} />
             ))}
           </SortableContext>
+          {/* Rendered outside the Columns, so their scrolling does not clip it. */}
+          <DragOverlay dropAnimation={null}>
+            {dragged && (
+              <div className="card overlay">
+                <span className="card-open">
+                  <CardBody card={dragged} />
+                </span>
+              </div>
+            )}
+          </DragOverlay>
         </DndContext>
         {editor && (
           <button type="button" className="add-column" onClick={editor.onAdd}>
@@ -146,6 +318,7 @@ export function Board({ columns, onOpen, editor }: { columns: BoardColumn[]; onO
           </button>
         )}
       </main>
+      {editor && menu && <MoveMenu menu={menu} stages={stages} onStage={editor.onStage} onClose={closeMenu} />}
     </>
   );
 }

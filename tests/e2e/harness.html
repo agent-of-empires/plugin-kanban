@@ -12,6 +12,8 @@
       // and reads window.opened for openSession calls and window.actions for
       // worker actions. config.set lands in the page snapshot, as the worker
       // would publish it; window.fixtures() returns that state for a reload.
+      // stage.set lands only when the test calls window.publishStage, so a
+      // test sees the optimistic move before the worker confirms it.
       const NONCE = "test-nonce";
       let frame = document.getElementById("page");
       let port = null;
@@ -64,6 +66,11 @@
         frame.src = `/dist/index.html#${NONCE}`;
       };
       window.pushTheme = (theme) => send({ event: "theme", data: theme });
+      window.publishStage = (sessionId, columnId) => {
+        const { pluginId, pageId } = fixtures.context;
+        const entry = fixtures.entries.find((e) => e.plugin_id === pluginId && e.slot === "page" && e.id === pageId);
+        entry.payload.stages[sessionId] = columnId;
+      };
     </script>
   </body>
 </html>
