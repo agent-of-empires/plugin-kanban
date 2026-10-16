@@ -30,6 +30,7 @@ export interface Editor {
   onEdit: (column: Column) => void;
   onMove: (id: string, to: number) => void;
   onStage: (sessionId: string, columnId: string) => void;
+  onImport: () => void;
 }
 
 type OnMenu = (card: Card, x: number, y: number) => void;
@@ -239,7 +240,17 @@ function MoveMenu({
   );
 }
 
-export function Board({ columns, onOpen, editor }: { columns: BoardColumn[]; onOpen: (id: string) => void; editor?: Editor }) {
+export function Board({
+  columns,
+  onOpen,
+  onExport,
+  editor,
+}: {
+  columns: BoardColumn[];
+  onOpen: (id: string) => void;
+  onExport: () => void;
+  editor?: Editor;
+}) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => filterBoard(columns, query), [columns, query]);
   const searching = query.trim() !== "";
@@ -300,6 +311,15 @@ export function Board({ columns, onOpen, editor }: { columns: BoardColumn[]; onO
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <span className="spacer" />
+        <button type="button" onClick={onExport}>
+          Export
+        </button>
+        {editor && (
+          <button type="button" onClick={editor.onImport}>
+            Import
+          </button>
+        )}
       </header>
       <nav className="indicator" aria-label="Columns">
         {shown.map((b, i) => (

@@ -54,6 +54,7 @@ function checkCondition(c, where) {
   const needsValue = c.op === "is" || c.op === "is not";
   const hasValue = ["string", "number", "boolean"].includes(typeof c.value);
   if (needsValue !== hasValue) throw new Error(`${where}: "${String(c.op)}" ${needsValue ? "needs" : "takes no"} value`);
+  if (typeof c.value === "number" && !Number.isFinite(c.value)) throw new Error(`${where}: value must be a finite number`);
 }
 function checkColumn(col, where) {
   if (!isRecord(col)) throw new Error(`${where}: not an object`);

@@ -67,6 +67,10 @@ column sends its Cards to the leftmost Stage column, and the last Stage column
 cannot be deleted. A Signal column with no Rules holds nothing.
 Editing is hidden in read-only and CityHall mode.
 
+To share a Board, **Export** shows its config as JSON to copy; the page's
+sandbox allows no file download. **Import** on another dashboard takes that
+JSON, pasted or from a file, and replaces the whole Board.
+
 ### Rules
 
 A Signal column's Rules are edited in its Column dialog, the shipped ones
