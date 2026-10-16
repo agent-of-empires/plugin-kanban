@@ -460,3 +460,46 @@ button.danger {
   border: 1px solid var(--color-status-error);
   border-radius: 6px;
 }
+
+.column-dialog.wide {
+  width: min(720px, 94vw);
+}
+
+.column-dialog .rules {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.column-dialog .rule,
+.column-dialog .condition {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.column-dialog .rule {
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: stretch;
+}
+
+.column-dialog .condition select,
+.column-dialog .condition input {
+  min-width: 0;
+  max-width: 160px;
+  padding: 4px 6px;
+  background: var(--color-surface-900);
+  border: 1px solid var(--color-surface-700);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+}
+
+.column-dialog .joiner {
+  min-width: 36px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}

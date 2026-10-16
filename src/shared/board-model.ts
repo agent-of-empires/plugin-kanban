@@ -144,7 +144,7 @@ const columnMatches = (col: Column, session: BridgeSession, entries: UiEntry[]) 
   col.rules.some((rule) => rule.every((c) => holds(c, session, entries)));
 
 // Mirrors the dashboard sidebar's attention order (web/src/lib/sidebarSort.ts).
-const STATUS_RANK: Record<string, number> = {
+export const STATUS_RANK: Record<string, number> = {
   Waiting: 0,
   Error: 1,
   Idle: 2,
