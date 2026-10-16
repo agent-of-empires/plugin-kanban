@@ -43,6 +43,9 @@ Rules match wins; otherwise the Card sits in its Stage column. A Session with
 no Stage, or one whose Stage column no longer exists, goes to the leftmost
 Stage column. A Card held by a Signal column shows its Stage as a chip.
 
+A Card reads like the Session's sidebar row: status glyph and title, repo and
+branch, then plugin badges (with their icons) and plugin row column text.
+
 Within a Column, Cards follow the sidebar's attention order: urgent first,
 then Waiting, Error (or a plugin column toned danger or warn), Idle, Running,
 Stopped, then most recent activity.
@@ -79,9 +82,12 @@ when any of its Rules does. There is no nesting.
 
 A condition is a field, an operator and, for `is` and `is not`, a value:
 
-- **Fields:** Status, Urgent, Unread, Pending approvals, Last error, and a
+- **Fields:** Status, Urgent, Unread, Pending approvals, Last error, every
+  plugin filter facet (such as GitHub CI or GitHub review, see below), and a
   plugin row column's tone or text, picked by plugin id and slot id, where
   `*` means any.
+- **Facets** offer their own values, e.g. `GitHub CI is failing`. `is set`
+  holds when the Session has any value of that facet, `is not` needs one.
 - **`is` / `is not`** compare the exact value, case included. `is not` needs
   the field to have a value, so a missing field matches neither.
 - **`is set` / `is empty`** treat `0`, `false` and blank text as empty. So
@@ -96,6 +102,25 @@ which Card order uses.
 
 The search box matches title, path, repo, branch and agent, like the sidebar
 filter. Group names are not exposed to plugin pages yet, so they do not match.
+
+### Making a plugin work with the Board
+
+A plugin's row columns and badges show on Cards as they do in the sidebar. To
+let Rules match on its state, a plugin must publish **filter facets**, the same
+ones the sidebar's Filter menu uses; the Board reads nothing else, so a plugin
+without them only offers raw tone and text conditions.
+
+1. Declare a `filter-facet` slot per facet in `aoe-plugin.toml` and push one
+   global entry each: `{label, column, options: [{value, label?, tone?}]}`,
+   where `column` is the id of one of its `row-column` slots.
+2. On that row column's per-Session payload, list the Session's current values
+   in `filter_values`.
+
+One row column can back several facets: the Board only counts the values a
+facet lists in its `options`, so prefix them (`ci:failing`, `review:approved`).
+[plugin-github](https://github.com/agent-of-empires/plugin-github) is the
+reference: facets GitHub CI, GitHub review, GitHub PR and GitHub comments over
+`github_pr_status`.
 
 ### Moving Cards
 

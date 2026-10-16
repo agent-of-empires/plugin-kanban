@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Column, type Config, addColumn, deleteColumn, editColumn, enterAction, moveColumn } from "../shared/board-config";
-import { type BridgeSession, type UiEntry, buildBoard, findSnapshot, rowColumnSlots } from "../shared/board-model";
+import { type BridgeSession, type UiEntry, buildBoard, facets, findSnapshot, rowColumnSlots } from "../shared/board-model";
 import { Board, type Editor } from "./Board";
 import type { Bridge, BridgeContext } from "./bridge";
 import { ColumnDialog } from "./ColumnDialog";
@@ -218,6 +218,7 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
           column={editing}
           canDelete={!!editing && !!deleteColumn(config, editing.id)}
           slots={rowColumnSlots(data.entries)}
+          facets={facets(data.entries)}
           onClose={() => setDialog(null)}
           onSave={(title, kind, onEnter, rules) => {
             if (!editing) save(addColumn(config, title, kind, onEnter, rules));

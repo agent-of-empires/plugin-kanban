@@ -20,6 +20,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { icons } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Column } from "../shared/board-config";
 import { type BoardColumn, type Card, type FilteredColumn, filterBoard } from "../shared/board-model";
@@ -46,32 +47,76 @@ interface Menu {
 // Session id from colliding with a Column id.
 const CARD = "card:";
 
+// Spinner frames of the dashboard's StatusGlyph (web/src/components/StatusGlyph.tsx).
+const RATTLES = {
+  dots: { frames: [..."⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"], interval: 220 },
+  orbit: { frames: [..."⠃⠉⠘⠰⢠⣀⡄⠆"], interval: 400 },
+  breathe: { frames: [..."⠀⠂⠌⡑⢕⢝⣫⣟⣿⣟⣫⢝⢕⡑⠌⠂⠀"], interval: 180 },
+};
+const STATUS_RATTLE: Record<string, keyof typeof RATTLES> = {
+  Running: "dots",
+  Waiting: "orbit",
+  Starting: "breathe",
+  Creating: "orbit",
+};
+const STATIC_GLYPH: Record<string, string> = { Idle: "⠒", Stopped: "⠒", Error: "✕", Deleting: "✕" };
+// The dashboard colours these titles by status; the rest stay secondary.
+const ACTIVE = ["Running", "Waiting", "Starting"];
+
+// ponytail: frames follow the wall clock, not the Session's created_at, which
+// the bridge does not send; Cards of one status spin in step.
+function StatusGlyph({ status }: { status: string }) {
+  const rattle = RATTLES[STATUS_RATTLE[status]];
+  const frameNow = () => (rattle ? Math.floor(Date.now() / rattle.interval) % rattle.frames.length : 0);
+  const [frame, setFrame] = useState(frameNow);
+  useEffect(() => {
+    if (!rattle) return;
+    const id = setInterval(() => setFrame(frameNow()), rattle.interval);
+    return () => clearInterval(id);
+  }, [rattle]);
+  return <>{rattle ? rattle.frames[frame] : (STATIC_GLYPH[status] ?? "⠤")}</>;
+}
+
+// Plugins name lucide icons in kebab case, as the dashboard renders them; an
+// unknown name renders nothing.
+function PluginIcon({ name }: { name: string }) {
+  const Icon = icons[name.replace(/(^|-)(\w)/g, (_, _dash, c: string) => c.toUpperCase()) as keyof typeof icons];
+  return Icon ? <Icon size={12} aria-hidden /> : null;
+}
+
 function CardBody({ card }: { card: Card }) {
-  const { session, stageChip, badges } = card;
+  const { session, stageChip, badges, columns } = card;
+  const status = session.status.toLowerCase();
   return (
     <>
       <span className="card-title">
-        <span className={`dot status-${session.status.toLowerCase()}`} title={session.status} aria-label={session.status} />
-        <span className="truncate">{session.title}</span>
+        <span className={`glyph status-${status}`} title={session.status} aria-label={session.status}>
+          <StatusGlyph status={session.status} />
+        </span>
+        <span className={`truncate${ACTIVE.includes(session.status) ? ` status-${status}` : ""}`}>{session.title}</span>
       </span>
       <span className="card-meta truncate">
         {card.repo}
         {card.branch && <span className="branch"> · {card.branch}</span>}
       </span>
-      <span className="card-meta">
-        {session.tool}
-        {session.last_activity && <> · {new Date(session.last_activity).toLocaleString()}</>}
-      </span>
-      {(stageChip || badges.length > 0) && (
-        <span className="chips">
-          {stageChip && (
-            <span className="chip stage" data-testid="stage-chip">
-              {stageChip}
-            </span>
-          )}
-          {badges.map((b, i) => (
-            <span key={i} className={`chip tone-${b.tone}`} title={b.tooltip}>
-              {[b.icon, b.text].filter(Boolean).join(" ")}
+      {(stageChip || badges.length > 0 || columns.length > 0) && (
+        <span className="plugin-line">
+          <span className="chips">
+            {stageChip && (
+              <span className="chip stage" data-testid="stage-chip">
+                {stageChip}
+              </span>
+            )}
+            {badges.map((b, i) => (
+              <span key={i} className={`chip tone-${b.tone}`} title={b.tooltip} aria-label={b.text ? undefined : b.tooltip}>
+                {b.icon && <PluginIcon name={b.icon} />}
+                {b.text && <span className="truncate">{b.text}</span>}
+              </span>
+            ))}
+          </span>
+          {columns.map((c, i) => (
+            <span key={i} className={`row-column truncate tone-${c.tone}`} title={c.tooltip ?? c.text}>
+              {c.text}
             </span>
           ))}
         </span>

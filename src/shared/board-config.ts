@@ -11,10 +11,17 @@ export interface PluginField {
   attr: "tone" | "text";
 }
 
+// One of a plugin's `filter-facet` entries, such as GitHub's "CI": the values
+// its row column lists in `filter_values` among the facet's options.
+export interface FacetField {
+  plugin_id: string;
+  facet_id: string;
+}
+
 export type Op = "is" | "is not" | "is set" | "is empty";
 
 export interface Condition {
-  field: SessionField | PluginField;
+  field: SessionField | PluginField | FacetField;
   op: Op;
   // Present only for "is" and "is not".
   value?: string | number | boolean;
@@ -136,6 +143,11 @@ function onlyKeys(obj: Record<string, unknown>, keys: readonly string[], where: 
 function checkField(field: unknown, where: string) {
   if (SESSION_FIELDS.includes(field)) return;
   if (!isRecord(field)) throw new Error(`${where}: unknown field`);
+  if ("facet_id" in field) {
+    onlyKeys(field, ["plugin_id", "facet_id"], where);
+    if (!isName(field.plugin_id) || !isName(field.facet_id)) throw new Error(`${where}: plugin_id and facet_id required`);
+    return;
+  }
   onlyKeys(field, ["plugin_id", "slot_id", "attr"], where);
   if (!isName(field.plugin_id) || !isName(field.slot_id)) throw new Error(`${where}: plugin_id and slot_id required`);
   if (field.attr !== "tone" && field.attr !== "text") throw new Error(`${where}: attr must be tone or text`);

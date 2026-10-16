@@ -23,6 +23,7 @@ test("accepts plugin fields and every op", () => {
     { field: { plugin_id: "agent-of-empires.github", slot_id: "pr", attr: "text" }, op: "is not", value: "open" },
     { field: "unread", op: "is empty" },
     { field: "pending_approvals", op: "is", value: 2 },
+    { field: { plugin_id: "agent-of-empires.github", facet_id: "github_ci" }, op: "is", value: "ci:failing" },
   ];
   const sig = { id: "x", title: "X", kind: "signal", rules: [rule], on_enter: "trash" };
   expect(parseConfig(withColumns([sig, stage])).ok).toBe(true);
@@ -43,6 +44,8 @@ test.each([
   ["unknown op", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: "urgent", op: "~" }]] }]), "unknown op"],
   ["missing value", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: "status", op: "is" }]] }]), "needs value"],
   ["stray value", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: "status", op: "is set", value: "x" }]] }]), "takes no value"],
+  ["facet without id", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: { plugin_id: "p", facet_id: "" }, op: "is set" }]] }]), "facet_id required"],
+  ["facet with a slot", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: { plugin_id: "p", facet_id: "f", slot_id: "s" }, op: "is set" }]] }]), 'unknown key "slot_id"'],
   ["bad plugin attr", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: { plugin_id: "p", slot_id: "s", attr: "color" }, op: "is set" }]] }]), "attr must be"],
 ])("rejects %s", (_name, value, error) => {
   const result = parseConfig(value);

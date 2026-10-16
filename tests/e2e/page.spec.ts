@@ -39,8 +39,14 @@ const fixtures = {
     session("archived", { archived: true }),
   ],
   entries: [
-    { plugin_id: "gh", slot: "row-column", id: "pr", session_id: "flagged", payload: { text: "changes", tone: "danger" } },
-    { plugin_id: "gh", slot: "row-badge", id: "pr", session_id: "fresh", payload: { text: "#42", tone: "success" } },
+    { plugin_id: "gh", slot: "row-column", id: "pr", session_id: "flagged", payload: { text: "changes", tone: "danger", filter_values: ["ci:failing"] } },
+    {
+      plugin_id: "gh",
+      slot: "filter-facet",
+      id: "ci",
+      payload: { label: "GitHub CI", column: "pr", options: [{ value: "ci:passing", label: "passing" }, { value: "ci:failing", label: "failing" }] },
+    },
+    { plugin_id: "gh", slot: "row-badge", id: "pr", session_id: "fresh", payload: { items: [{ text: "#42", tone: "success" }, { icon: "circle-x", tone: "danger", tooltip: "CI failing" }] } },
     { plugin_id: PLUGIN, slot: "page", id: "board", payload: { stages: { waiting: "needs-testing", shipped: "done" } } },
   ],
 };
@@ -82,8 +88,11 @@ test("renders the default Board from bridge data", async ({ page }) => {
   const fresh = column(page, "in-progress").getByTestId("card-fresh");
   await expect(fresh).toContainText("Session fresh");
   await expect(fresh).toContainText("aoe · feat/board");
-  await expect(fresh).toContainText("claude");
   await expect(fresh).toContainText("#42");
+  // Plugin icons render as lucide icons, not their names.
+  await expect(fresh.getByLabel("CI failing").locator("svg")).toHaveCount(1);
+  await expect(fresh).not.toContainText("circle-x");
+  await expect(board(page).getByTestId("card-flagged")).toContainText("changes");
   await expect(fresh.getByTestId("stage-chip")).toHaveCount(0);
 
   await expect(board(page).getByTestId("card-archived")).toHaveCount(0);
@@ -379,6 +388,26 @@ test("a plugin condition picks plugin and slot, and Save waits for a value", asy
       { field: "status", op: "is", value: "Stopped" },
       { field: { plugin_id: "gh", slot_id: "pr", attr: "text" }, op: "is empty" },
     ],
+  ]);
+});
+
+test("a facet condition offers the plugin's facets and their options", async ({ page }) => {
+  const b = board(page);
+  await b.getByRole("button", { name: "+ Add column" }).click();
+  const add = b.getByRole("dialog", { name: "Add column" });
+  await add.getByLabel("Name").fill("CI failing");
+  await add.getByLabel(/^Signal/).check();
+  await add.getByRole("button", { name: "+ Rule" }).click();
+  const rule = add.getByRole("group", { name: "Rule 1" });
+  await rule.getByLabel("Field").selectOption({ label: "GitHub CI" });
+  await expect(rule.getByLabel("Plugin")).toHaveCount(0);
+  await expect(rule.getByLabel("Value").locator("option")).toHaveText(["passing", "failing"]);
+  await rule.getByLabel("Value").selectOption({ label: "failing" });
+  await add.getByRole("button", { name: "Save" }).click();
+
+  const id = await b.getByRole("region", { name: "CI failing" }).getAttribute("data-testid");
+  expect(await sentRules(page, 1, id!.replace(/^column-/, ""))).toEqual([
+    [{ field: { plugin_id: "gh", facet_id: "ci" }, op: "is", value: "ci:failing" }],
   ]);
 });
 

@@ -7,7 +7,7 @@ body {
   margin: 0;
   background: var(--color-surface-900);
   color: var(--color-text-primary);
-  font: 13px/1.4 "Geist", system-ui, sans-serif;
+  font: 13px/1.4 "Geist Sans", system-ui, sans-serif;
 }
 
 .notice {
@@ -60,6 +60,8 @@ body {
   display: flex;
   flex: 0 0 280px;
   flex-direction: column;
+  /* Lets long titles and branches truncate instead of widening the Column. */
+  min-width: 0;
   min-height: 0;
   background: var(--color-surface-850);
   border: 1px solid var(--color-surface-700);
@@ -223,7 +225,7 @@ body {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 .truncate {
@@ -242,42 +244,62 @@ body {
   font-family: "Geist Mono", ui-monospace, monospace;
 }
 
-.dot {
+.glyph {
   flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-status-idle);
+  color: var(--color-status-idle);
+  font: 14px/1 "Geist Mono", ui-monospace, monospace;
 }
 
-/* Status colours follow the dashboard's (web/src/lib/session.ts). */
+/* Status colours follow the dashboard's (web/src/lib/session.ts); the glyph
+   always takes one, the title only while the Session is active. */
 .status-running {
-  background: var(--color-status-running);
+  color: var(--color-status-running);
 }
 .status-waiting {
-  background: var(--color-status-waiting);
+  color: var(--color-status-waiting);
 }
 .status-error,
 .status-deleting {
-  background: var(--color-status-error);
+  color: var(--color-status-error);
 }
 .status-starting,
 .status-creating {
-  background: var(--color-status-starting);
+  color: var(--color-status-starting);
 }
 .status-stopped {
-  background: var(--color-status-stopped);
+  color: var(--color-status-stopped);
+}
+
+/* Badges, then the row column pushed right, as the sidebar's plugin line. */
+.plugin-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.row-column {
+  --tone: var(--color-status-idle);
+  flex: none;
+  max-width: 128px;
+  margin-left: auto;
+  color: var(--tone);
+  font: 11px "Geist Mono", ui-monospace, monospace;
 }
 
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .chip {
   --tone: var(--color-status-idle);
-  padding: 1px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--tone) 15%, transparent);
   color: var(--tone);
