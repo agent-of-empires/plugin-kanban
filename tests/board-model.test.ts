@@ -74,14 +74,14 @@ test("leftmost Signal column wins", () => {
   expect(placement([session("s", { status: "Error", urgent: true })], [], {}, swapped)).toEqual({ s: "error" });
 });
 
-test("a Signal beats the stored Stage, and the Card carries a stage chip", () => {
+test("a Signal beats the stored Stage, and the Card keeps its Stage id", () => {
   const b = board([session("s", { status: "Waiting" })], [], { s: "needs-testing" });
-  expect(b[0].cards[0]).toMatchObject({ stageId: "needs-testing", stageChip: "Needs testing" });
+  expect(b[0].cards[0]).toMatchObject({ stageId: "needs-testing" });
 });
 
 test("missing or unknown Stage resolves to the leftmost Stage column", () => {
   expect(placement([session("a"), session("b")], [], { b: "gone" })).toEqual({ a: "in-progress", b: "in-progress" });
-  expect(board([session("a")]).flatMap((b) => b.cards)[0]).toMatchObject({ stageId: "in-progress", stageChip: undefined });
+  expect(board([session("a")]).flatMap((b) => b.cards)[0]).toMatchObject({ stageId: "in-progress" });
 });
 
 test("a Session sits in its stored Stage when no Signal matches", () => {

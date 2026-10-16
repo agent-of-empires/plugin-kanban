@@ -89,7 +89,7 @@ function PluginIcon({ name }: { name: string }) {
 }
 
 function CardBody({ card }: { card: Card }) {
-  const { session, stageChip, badges, columns } = card;
+  const { session, badges, columns } = card;
   const status = session.status.toLowerCase();
   return (
     <>
@@ -104,14 +104,9 @@ function CardBody({ card }: { card: Card }) {
         {card.repo}
         {card.branch && <span className="branch"> · {card.branch}</span>}
       </span>
-      {(stageChip || badges.length > 0 || columns.length > 0) && (
+      {(badges.length > 0 || columns.length > 0) && (
         <span className="plugin-line">
           <span className="chips">
-            {stageChip && (
-              <span className="chip stage" data-testid="stage-chip">
-                {stageChip}
-              </span>
-            )}
             {badges.map((b, i) => (
               <span key={i} className={`chip tone-${b.tone}`} title={b.tooltip} aria-label={b.text ? undefined : b.tooltip}>
                 {b.icon && <PluginIcon name={b.icon} />}

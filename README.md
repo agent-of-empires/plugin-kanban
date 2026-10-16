@@ -41,7 +41,7 @@ Every Session that is not Dismissed (archived, snoozed or trashed) is one
 Placement: Signal columns are checked left to right and the first one whose
 Rules match wins; otherwise the Card sits in its Stage column. A Session with
 no Stage, or one whose Stage column no longer exists, goes to the leftmost
-Stage column. A Card held by a Signal column shows its Stage as a chip.
+Stage column.
 
 A Card reads like the Session's sidebar row: status glyph and title, repo and
 branch, then plugin badges (with their icons) and plugin row column text.
@@ -154,7 +154,7 @@ and for the Card's own archive or trash Column to retry its action. On a dashboa
 To set a Session's Stage, drag its Card onto a Stage column (on touch, long
 press first), or pick a **Move to** entry from the Card's `⋯` button or
 right-click menu. A Card dragged out of a Signal column records the new Stage
-but stays until the Signal clears, showing the Stage as its chip. Read-only
+but stays until the Signal clears. Read-only
 and CityHall dashboards can't move Cards.
 
 On a phone the Board shows one Column per screen: swipe sideways, or tap a dot
