@@ -138,7 +138,13 @@ type Harness = {
   fixtures: () => typeof fixtures;
   publishStage: (sessionId: string, columnId: string) => void;
   opened: string[];
-  actions: { method: string; params: { config: { columns: { id: string; title: string; kind: string; on_enter: string }[] } } }[];
+  actions: {
+    method: string;
+    params: {
+      config: { columns: { id: string; title: string; kind: string; on_enter: string; send?: { label: string; message: string; stage?: string } }[] };
+      sessionIds: string[];
+    };
+  }[];
 };
 // Runs fn in the harness window with a JSON argument; fn sees no closure.
 const harness = <T, A = undefined>(page: Page, fn: (h: Harness, arg: A) => T, arg?: A): Promise<T> =>
@@ -667,7 +673,7 @@ test("a Column's one-click message sends from a Card and, after a confirm, from 
   await edit.getByRole("button", { name: "Save" }).click();
   await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(1);
   const saved = await harness(page, (h) => h.actions[0].params.config.columns.find((c) => c.id === "action-needed"));
-  expect(saved.send).toEqual({ label: "Fix", message: "resolve the comments", stage: "done" });
+  expect(saved?.send).toEqual({ label: "Fix", message: "resolve the comments", stage: "done" });
 
   const action = column(page, "action-needed");
   await action.getByTestId("card-waiting").getByRole("button", { name: "Fix" }).click();

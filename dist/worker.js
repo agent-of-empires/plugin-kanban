@@ -283,7 +283,7 @@ async function sendMessage(params) {
       log(`messaging ${sessionId} failed: ${errorText(e)}`);
       continue;
     }
-    if (moveTo) await setStage({ sessionId, columnId: moveTo }).catch((e) => log(`moving ${sessionId} failed: ${errorText(e)}`));
+    if (moveTo && stages.get(sessionId) !== moveTo) await setStage({ sessionId, columnId: moveTo }).catch((e) => log(`moving ${sessionId} failed: ${errorText(e)}`));
   }
 }
 var handlers = /* @__PURE__ */ new Map([

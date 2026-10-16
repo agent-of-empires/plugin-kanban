@@ -204,9 +204,10 @@ function ColumnView({
   const cardOver = isOver && String(active?.id).startsWith(CARD);
   const { send } = column;
   const ids = cards.map((c) => c.session.id);
+  const idsKey = ids.join();
   // Sends to many Sessions at once, so the first click asks and the second sends.
   const [confirming, setConfirming] = useState(false);
-  useEffect(() => setConfirming(false), [ids.join()]);
+  useEffect(() => setConfirming(false), [idsKey]);
   return (
     <section
       ref={setNodeRef}

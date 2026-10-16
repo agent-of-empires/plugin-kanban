@@ -94,7 +94,7 @@ export function ColumnDialog({ column, canDelete, slots, facets, stages, onSave,
         </label>
         <label>
           Message
-          <textarea rows={3} value={sendMessage} onChange={(e) => setSendMessage(e.target.value)} />
+          <textarea rows={3} maxLength={SEND_MESSAGE_MAX} value={sendMessage} onChange={(e) => setSendMessage(e.target.value)} />
         </label>
         <label>
           Then move the Card to
