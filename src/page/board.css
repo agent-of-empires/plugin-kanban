@@ -549,3 +549,11 @@ button.danger {
   color: var(--color-text-muted);
   font-size: 12px;
 }
+
+.unread-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-status-unread);
+}

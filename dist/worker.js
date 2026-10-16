@@ -17,6 +17,7 @@ var DEFAULT_CONFIG = {
       [{ field: "status", op: "is", value: "Waiting" }],
       [{ field: "urgent", op: "is", value: true }],
       [{ field: "pending_approvals", op: "is set" }],
+      [{ field: "unread", op: "is", value: true }],
       anyTone("danger"),
       anyTone("warn")
     ]),
