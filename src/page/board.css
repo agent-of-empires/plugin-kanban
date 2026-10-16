@@ -29,6 +29,8 @@ body {
 }
 
 .search {
+  /* A flex item; lets it shrink so the toolbar buttons stay on screen. */
+  min-width: 0;
   width: 280px;
   max-width: 100%;
   padding: 6px 10px;
