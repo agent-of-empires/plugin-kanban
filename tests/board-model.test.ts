@@ -47,6 +47,7 @@ test.each<[string, Partial<BridgeSession>, UiEntry[], string]>([
   ["status Waiting", { status: "Waiting" }, [], "action-needed"],
   ["urgent", { urgent: true }, [], "action-needed"],
   ["pending approvals", { pending_approvals: 2 }, [], "action-needed"],
+  ["unread", { unread: true }, [], "action-needed"],
   ["plugin tone danger", {}, [rowColumn("s", { tone: "danger" })], "action-needed"],
   ["plugin tone warn", {}, [rowColumn("s", { tone: "warn" })], "action-needed"],
   ["status Error", { status: "Error" }, [], "error"],

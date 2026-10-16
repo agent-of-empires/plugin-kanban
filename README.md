@@ -54,7 +54,7 @@ The default Board:
 
 | Column | Kind | Holds a Session when |
 |---|---|---|
-| Action needed | Signal | Status is Waiting, it is urgent, it has pending Approvals, or any plugin row column is toned danger or warn |
+| Action needed | Signal | Status is Waiting, it is urgent, it has pending Approvals, it is unread, or any plugin row column is toned danger or warn |
 | Error | Signal | Status is Error, or its last error is set |
 | In progress | Stage | |
 | Needs testing | Stage | |

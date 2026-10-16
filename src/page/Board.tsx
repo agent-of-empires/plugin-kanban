@@ -93,6 +93,7 @@ function CardBody({ card }: { card: Card }) {
         <span className={`glyph status-${status}`} title={session.status} aria-label={session.status}>
           <StatusGlyph status={session.status} />
         </span>
+        {session.unread && <span className="unread-dot" title="Unread" aria-label="Unread" />}
         <span className={`truncate${ACTIVE.includes(session.status) ? ` status-${status}` : ""}`}>{session.title}</span>
       </span>
       <span className="card-meta truncate">
