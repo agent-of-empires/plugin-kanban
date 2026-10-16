@@ -312,11 +312,6 @@ body {
   font: 11px "Geist Mono", ui-monospace, monospace;
 }
 
-.chip.stage {
-  --tone: var(--color-text-secondary);
-  border: 1px solid var(--color-surface-600);
-}
-
 /* Plugin tones, as the dashboard maps them (web/src/lib/pluginUi.ts). */
 .tone-info {
   --tone: var(--color-status-unread);

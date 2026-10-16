@@ -67,8 +67,6 @@ export interface Card {
   columns: RowColumn[];
   // Id of the Session's resolved Stage column, wherever the Card sits.
   stageId: string;
-  // Title of the Session's Stage, set when the Card sits in a Signal column.
-  stageChip?: string;
 }
 
 export interface BoardColumn {
@@ -267,7 +265,6 @@ export function buildBoard(sessions: BridgeSession[], entries: UiEntry[], snapsh
         badges: badges(session, entries),
         columns: columnsOf(session, entries),
         stageId: stage.id,
-        stageChip: signal ? stage.title : undefined,
       });
   }
   for (const b of board) b.cards.sort((x, y) => compareCards(x, y, entries));

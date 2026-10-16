@@ -80,8 +80,6 @@ test("renders the default Board from bridge data", async ({ page }) => {
 
   const action = column(page, "action-needed");
   await expect(action.locator("li")).toHaveCount(2);
-  await expect(action.getByTestId("card-waiting").getByTestId("stage-chip")).toHaveText("Needs testing");
-  await expect(action.getByTestId("card-flagged").getByTestId("stage-chip")).toHaveText("In progress");
   await expect(column(page, "error").getByTestId("card-broken")).toBeVisible();
   await expect(column(page, "done").getByTestId("card-shipped")).toBeVisible();
 
@@ -93,7 +91,6 @@ test("renders the default Board from bridge data", async ({ page }) => {
   await expect(fresh.getByLabel("CI failing").locator("svg")).toHaveCount(1);
   await expect(fresh).not.toContainText("circle-x");
   await expect(board(page).getByTestId("card-flagged")).toContainText("changes");
-  await expect(fresh.getByTestId("stage-chip")).toHaveCount(0);
 
   await expect(board(page).getByTestId("card-archived")).toHaveCount(0);
   await expect(board(page).getByRole("navigation", { name: "Columns" })).toBeHidden();
@@ -482,7 +479,6 @@ test.describe("moving Cards", () => {
     const card = column(page, "action-needed").getByTestId("card-waiting");
     await drag(page, card, column(page, "done"));
 
-    await expect(card.getByTestId("stage-chip")).toHaveText("Done");
     await expect(column(page, "done").getByTestId("card-waiting")).toHaveCount(0);
     await expect.poll(() => actions(page)).toEqual([stageSet("waiting", "done")]);
   });
