@@ -181,3 +181,14 @@ export function parseConfig(value: unknown): ParseResult {
     return { ok: false, error: (e as Error).message };
   }
 }
+
+// For an imported file or pasted text.
+export function parseConfigJson(text: string): ParseResult {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, error: `not valid JSON: ${(e as Error).message}` };
+  }
+  return parseConfig(value);
+}

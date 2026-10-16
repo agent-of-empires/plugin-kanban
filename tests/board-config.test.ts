@@ -8,6 +8,7 @@ import {
   moveColumn,
   newColumnId,
   parseConfig,
+  parseConfigJson,
 } from "../src/shared/board-config";
 
 const withColumns = (columns: unknown[]) => ({ version: 1, columns });
@@ -131,4 +132,19 @@ test("a new Signal column can start with Rules", () => {
   const added = addColumn(DEFAULT_CONFIG, "Idle", "signal", "none", rules);
   valid(added);
   expect(added.columns.at(-1)).toMatchObject({ kind: "signal", rules });
+});
+
+test("an exported config imports back unchanged", () => {
+  const config = addColumn(DEFAULT_CONFIG, "Archive", "stage", "archive");
+  expect(parseConfigJson(JSON.stringify(config, null, 2))).toEqual({ ok: true, config });
+});
+
+test.each([
+  ["invalid JSON", "{ version: 1", "not valid JSON"],
+  ["an empty file", "", "not valid JSON"],
+  ["a nested unknown key", JSON.stringify(withColumns([{ ...stage, color: "red" }])), 'column 0: unknown key "color"'],
+  ["a JSON array", "[]", "config: not an object"],
+])("import rejects %s", (_name, text, error) => {
+  const result = parseConfigJson(text);
+  expect(result.ok ? "" : result.error).toContain(error);
 });
