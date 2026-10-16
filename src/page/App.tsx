@@ -188,9 +188,10 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
           column={editing}
           canDelete={!!editing && !!deleteColumn(config, editing.id)}
           onClose={() => setDialog(null)}
-          onSave={(title, kind) => {
-            if (!editing) save(addColumn(config, title, kind));
-            else if (title !== editing.title) save(editColumn(config, editing.id, { title, on_enter: editing.on_enter }));
+          onSave={(title, kind, onEnter) => {
+            if (!editing) save(addColumn(config, title, kind, onEnter));
+            else if (title !== editing.title || onEnter !== editing.on_enter)
+              save(editColumn(config, editing.id, { title, on_enter: onEnter }));
             setDialog(null);
           }}
           onDelete={() => {

@@ -128,7 +128,7 @@ type Harness = {
   fixtures: () => typeof fixtures;
   publishStage: (sessionId: string, columnId: string) => void;
   opened: string[];
-  actions: { method: string; params: { config: { columns: { id: string; title: string; kind: string }[] } } }[];
+  actions: { method: string; params: { config: { columns: { id: string; title: string; kind: string; on_enter: string }[] } } }[];
 };
 // Runs fn in the harness window with a JSON argument; fn sees no closure.
 const harness = <T, A = undefined>(page: Page, fn: (h: Harness, arg: A) => T, arg?: A): Promise<T> =>
@@ -190,6 +190,39 @@ test("adds, renames, reorders and deletes Columns through config.set", async ({ 
   await harness(page, (h) => h.startPage(h.fixtures()));
   await expect(titles(page)).toHaveText(after);
   await expect(b.getByRole("alert")).toHaveCount(0);
+});
+
+test("the Column dialog sets an enter-action on Stage columns only", async ({ page }) => {
+  const b = board(page);
+  const when = /^When a Card is dropped here/;
+  await b.getByRole("button", { name: "Edit column Done", exact: true }).click();
+  const edit = b.getByRole("dialog", { name: "Edit column" });
+  await expect(edit.getByLabel(when)).toHaveValue("none");
+  await edit.getByLabel(when).selectOption({ label: "Archive the Session" });
+  await edit.getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(1);
+
+  // A reload reads it back from the snapshot.
+  await harness(page, (h) => h.startPage(h.fixtures()));
+  await b.getByRole("button", { name: "Edit column Done", exact: true }).click();
+  await expect(b.getByRole("dialog", { name: "Edit column" }).getByLabel(when)).toHaveValue("archive");
+  await b.getByRole("dialog", { name: "Edit column" }).getByRole("button", { name: "Cancel" }).click();
+
+  await b.getByRole("button", { name: "Edit column Error", exact: true }).click();
+  await expect(b.getByRole("dialog", { name: "Edit column" }).getByLabel(when)).toHaveCount(0);
+  await b.getByRole("dialog", { name: "Edit column" }).getByRole("button", { name: "Cancel" }).click();
+
+  // A new Column picked as Stage, then switched to Signal, keeps none.
+  await b.getByRole("button", { name: "+ Add column" }).click();
+  const add = b.getByRole("dialog", { name: "Add column" });
+  await add.getByLabel("Name").fill("Bin");
+  await add.getByLabel(when).selectOption("trash");
+  await add.getByLabel(/^Signal/).check();
+  await add.getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(2);
+  const columns = await harness(page, (h) => h.actions.map((a) => a.params.config.columns));
+  expect(columns[0].find((c) => c.id === "done")).toMatchObject({ on_enter: "archive" });
+  expect(columns[1].at(-1)).toMatchObject({ title: "Bin", kind: "signal", on_enter: "none" });
 });
 
 test("the last Stage column cannot be deleted, and Cancel changes nothing", async ({ page }) => {

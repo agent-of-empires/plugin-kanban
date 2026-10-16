@@ -415,7 +415,8 @@ button.danger {
   align-items: center;
 }
 
-.column-dialog input:not([type="radio"]) {
+.column-dialog input:not([type="radio"]),
+.column-dialog select {
   flex: 1;
   padding: 4px 8px;
   background: var(--color-surface-900);
