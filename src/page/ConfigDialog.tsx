@@ -18,9 +18,14 @@ export function ConfigDialog({ config, onImport, onClose }: Props) {
     if (!ref.current?.open) ref.current?.showModal();
   }, []);
 
-  const parsed = onImport && text.trim() ? parseConfigJson(text) : undefined;
-  const loadFile = (file: File | undefined) =>
-    file?.text().then(setText, (e: Error) => console.error(`[kanban] reading ${file.name} failed: ${e.message}`));
+  const [readError, setReadError] = useState<string | null>(null);
+  // A read error stands in for the text, so a failed pick never imports what was there before.
+  const parsed = readError ? { ok: false as const, error: readError } : onImport && text.trim() ? parseConfigJson(text) : undefined;
+  const loadFile = (file: File | undefined) => {
+    setText("");
+    setReadError(null);
+    file?.text().then(setText, (e: Error) => setReadError(`couldn't read ${file.name}: ${e.message}`));
+  };
   const title = onImport ? "Import Board" : "Export Board";
   return (
     <dialog ref={ref} className="column-dialog wide" aria-label={title} onClose={onClose}>
@@ -40,7 +45,10 @@ export function ConfigDialog({ config, onImport, onClose }: Props) {
         autoFocus
         readOnly={!onImport}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          setReadError(null);
+        }}
         onFocus={(e) => !onImport && e.currentTarget.select()}
       />
       {parsed && !parsed.ok && (
