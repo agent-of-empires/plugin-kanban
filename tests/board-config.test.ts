@@ -3,10 +3,11 @@ import {
   DEFAULT_CONFIG,
   addColumn,
   deleteColumn,
+  editColumn,
+  enterAction,
   moveColumn,
   newColumnId,
   parseConfig,
-  renameColumn,
 } from "../src/shared/board-config";
 
 const withColumns = (columns: unknown[]) => ({ version: 1, columns });
@@ -52,7 +53,7 @@ const ids = (config: { columns: { id: string }[] }) => config.columns.map((c) =>
 const valid = (config: unknown) => expect(parseConfig(config)).toEqual({ ok: true, config });
 
 test("edits on the default Board stay valid and keep the shipped Rules", () => {
-  const renamed = renameColumn(DEFAULT_CONFIG, "action-needed", "Look at me");
+  const renamed = editColumn(DEFAULT_CONFIG, "action-needed", { title: "Look at me", on_enter: "none" });
   valid(renamed);
   expect(renamed.columns[0]).toEqual({ ...DEFAULT_CONFIG.columns[0], title: "Look at me" });
   expect(renamed.columns.slice(1)).toEqual(DEFAULT_CONFIG.columns.slice(1));
@@ -74,7 +75,7 @@ test("edits on the default Board stay valid and keep the shipped Rules", () => {
 });
 
 test("a rename keeps the Column's id and kind", () => {
-  const renamed = renameColumn(DEFAULT_CONFIG, "done", "Shipped").columns.find((c) => c.title === "Shipped");
+  const renamed = editColumn(DEFAULT_CONFIG, "done", { title: "Shipped", on_enter: "none" }).columns.find((c) => c.title === "Shipped");
   expect(renamed).toMatchObject({ id: "done", kind: "stage" });
 });
 
@@ -90,4 +91,28 @@ test("new Column ids are opaque, so a re-added Column never inherits old Stages"
   expect(first).not.toBe("done");
   expect(first).not.toBe(second);
   expect(newColumnId(["col-x"])).toMatch(/^col-[0-9a-z]+$/);
+});
+
+test("an enter-action is set on add and on edit, and survives parsing", () => {
+  const added = addColumn(DEFAULT_CONFIG, "Archive", "stage", "archive");
+  valid(added);
+  expect(added.columns.at(-1)).toMatchObject({ kind: "stage", on_enter: "archive" });
+
+  const edited = editColumn(DEFAULT_CONFIG, "done", { title: "Done", on_enter: "trash" });
+  valid(edited);
+  expect(edited.columns.find((c) => c.id === "done")).toEqual({ ...DEFAULT_CONFIG.columns[5], on_enter: "trash" });
+});
+
+test.each([
+  ["stage", "none", undefined],
+  ["stage", "archive", "session.archive"],
+  ["stage", "trash", "session.trash"],
+  ["signal", "archive", undefined],
+  ["signal", "trash", undefined],
+] as const)("a %s column with on_enter %s triggers %s", (kind, on_enter, method) => {
+  expect(enterAction({ id: "c", title: "C", kind, rules: [], on_enter })).toBe(method);
+});
+
+test("a missing column triggers nothing", () => {
+  expect(enterAction(undefined)).toBeUndefined();
 });
