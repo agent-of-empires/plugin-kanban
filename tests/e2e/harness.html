@@ -18,16 +18,27 @@
       // test sees the optimistic move before the worker confirms it.
       // session.archive and session.trash join window.actions in call order
       // and dismiss the fixture Session; fixtures.rejectEnter refuses them.
+      // With fixtures.hostMenu, session.contextMenu joins window.menus and
+      // waits for window.pickMenu(id); without it the method is unknown, as on
+      // an older dashboard. window.pushSelection plays the split view.
       const NONCE = "test-nonce";
       let frame = document.getElementById("page");
       let port = null;
       let fixtures = null;
       window.opened = [];
       window.actions = [];
+      window.menus = [];
+      let menuReply = null;
       window.fixtures = () => fixtures;
 
       const send = (msg) => port.postMessage({ aoeBridge: 1, ...msg });
-      function answer(method, params) {
+      function answer(method, params, id) {
+        if (method === "session.contextMenu" && fixtures.hostMenu) {
+          if (!params?.id) return { error: { code: "invalid_params", message: "Invalid params." } };
+          window.menus.push(params);
+          menuReply = (picked) => send({ id, result: picked });
+          return null;
+        }
         if (method === "sessions.list") return { result: fixtures.sessions };
         if (method === "plugins.uiState") return { result: { entries: fixtures.entries, notifications: [] } };
         if (method === "openSession") {
@@ -60,7 +71,10 @@
         const msg = event.data;
         if (event.source !== frame.contentWindow || port || msg?.method !== "ready" || msg.params?.nonce !== NONCE) return;
         port = event.ports[0];
-        port.onmessage = ({ data }) => send({ id: data.id, ...answer(data.method, data.params) });
+        port.onmessage = ({ data }) => {
+          const reply = answer(data.method, data.params, data.id);
+          if (reply) send({ id: data.id, ...reply });
+        };
         send({ id: msg.id, result: null });
         send({ event: "context", data: fixtures.context });
         send({ event: "theme", data: fixtures.theme });
@@ -77,6 +91,8 @@
         frame.src = `/dist/index.html#${NONCE}`;
       };
       window.pushTheme = (theme) => send({ event: "theme", data: theme });
+      window.pushSelection = (sessionId) => send({ event: "selection", data: { sessionId } });
+      window.pickMenu = (picked) => menuReply?.(picked);
       window.publishStage = (sessionId, columnId) => {
         const { pluginId, pageId } = fixtures.context;
         const entry = fixtures.entries.find((e) => e.plugin_id === pluginId && e.slot === "page" && e.id === pageId);

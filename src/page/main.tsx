@@ -9,10 +9,12 @@ import sans500 from "@fontsource/geist-sans/files/geist-sans-latin-500-normal.wo
 import sans600 from "@fontsource/geist-sans/files/geist-sans-latin-600-normal.woff2?inline";
 
 const root = createRoot(document.getElementById("root")!);
-const render = (context: BridgeContext | null) =>
+let context: BridgeContext | null = null;
+let selected: string | null = null;
+const render = () =>
   root.render(
     <StrictMode>
-      <App bridge={bridge} context={context} />
+      <App bridge={bridge} context={context} selected={selected} />
     </StrictMode>,
   );
 
@@ -42,5 +44,15 @@ for (const [family, weight, url] of [
 
 // Connected here rather than in an effect: the dashboard accepts one `ready`
 // per frame, and StrictMode runs effects twice.
-const bridge = connectBridge(window.parent, location.hash.slice(1), { onContext: render, onTheme: applyTheme });
-render(null);
+const bridge = connectBridge(window.parent, location.hash.slice(1), {
+  onContext: (next) => {
+    context = next;
+    render();
+  },
+  onTheme: applyTheme,
+  onSelection: (next) => {
+    selected = next;
+    render();
+  },
+});
+render();

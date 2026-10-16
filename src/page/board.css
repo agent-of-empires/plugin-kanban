@@ -126,6 +126,12 @@ body {
   border-color: var(--color-surface-600);
 }
 
+/* The Session the dashboard's split view shows. */
+.card.selected {
+  border-color: var(--color-accent-500);
+  box-shadow: 0 0 0 1px var(--color-accent-500);
+}
+
 .card.dragging {
   opacity: 0.4;
 }

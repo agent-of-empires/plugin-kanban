@@ -137,6 +137,9 @@ type Harness = {
   startPage: (f: unknown) => void;
   fixtures: () => typeof fixtures;
   publishStage: (sessionId: string, columnId: string) => void;
+  pushSelection: (sessionId: string | null) => void;
+  pickMenu: (picked: string | null) => void;
+  menus: { id: string; x: number; y: number; items: { id: string; label: string }[] }[];
   opened: string[];
   actions: {
     method: string;
@@ -443,7 +446,10 @@ test.describe("moving Cards", () => {
 
   const actions = (page: Page) => harness(page, (h) => h.actions);
   const stageSet = (sessionId: string, columnId: string) => ({ method: "stage.set", params: { sessionId, columnId } });
-  const restart = (page: Page, overrides: { rejectActions?: boolean; context?: Record<string, boolean> }) =>
+  const restart = (
+    page: Page,
+    overrides: { rejectActions?: boolean; hostMenu?: boolean; context?: Record<string, boolean> },
+  ) =>
     harness(page, (h, o) => h.startPage({ ...h.fixtures(), ...o, context: { ...h.fixtures().context, ...o!.context } }), overrides);
 
   // A real mouse drag: past the 5px activation distance, then onto the target.
@@ -488,7 +494,7 @@ test.describe("moving Cards", () => {
   });
 
   test("Move to lists the Stage columns and writes the chosen one", async ({ page }) => {
-    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Move to…" }).click();
+    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Session actions" }).click();
 
     const items = board(page).getByRole("menu").getByRole("menuitemradio");
     await expect(items).toHaveText(["In progress", "Needs testing", "Waiting for review", "Done"]);
@@ -527,7 +533,7 @@ test.describe("moving Cards", () => {
       { config: editColumn(DEFAULT_CONFIG, "done", { title: "Done", on_enter }), overrides },
     );
   const moveTo = async (page: Page, id: string, title: string) => {
-    await board(page).getByTestId(`card-${id}`).getByRole("button", { name: "Move to…" }).click();
+    await board(page).getByTestId(`card-${id}`).getByRole("button", { name: "Session actions" }).click();
     await board(page).getByRole("menu").getByRole("menuitemradio").filter({ hasText: title }).click();
   };
 
@@ -584,18 +590,78 @@ test.describe("moving Cards", () => {
     await expect(board(page).getByTestId("card-fresh")).toHaveCount(0);
   });
 
+  test("the dashboard's session menu keeps an archive Column's own entry to retry a refused archive", async ({ page }) => {
+    await enterBoard(page, "archive", { rejectEnter: true, hostMenu: true });
+    const menuItems = async () => {
+      const before = await harness(page, (h) => h.menus.length);
+      await board(page).getByTestId("card-fresh").click({ button: "right" });
+      await expect.poll(() => harness(page, (h) => h.menus.length)).toBe(before + 1);
+      return (await harness(page, (h) => h.menus.at(-1)!)).items.map((i: { id: string }) => i.id);
+    };
+    expect(await menuItems()).toContain("move:done");
+    await harness(page, (h) => h.pickMenu("move:done"));
+    await harness(page, (h) => h.publishStage("fresh", "done"));
+    await expect(board(page).getByRole("alert")).toHaveText("Couldn't archive the Session.");
+
+    await harness(page, (h) => Object.assign(h.fixtures(), { rejectEnter: false }));
+    expect(await menuItems()).toContain("move:done");
+    await harness(page, (h) => h.pickMenu("move:done"));
+    await expect
+      .poll(() => actions(page))
+      .toEqual([stageSet("fresh", "done"), { method: "session.archive", params: { id: "fresh" } }]);
+  });
+
+  test("with the dashboard's session menu, a Card opens it with Move to items", async ({ page }) => {
+    await restart(page, { hostMenu: true });
+    const card = column(page, "in-progress").getByTestId("card-fresh");
+    await card.click({ button: "right", position: { x: 20, y: 10 } });
+    await expect.poll(() => harness(page, (h) => h.menus.length)).toBe(1);
+    const [menu] = await harness(page, (h) => h.menus);
+    // In the frame's own coordinates.
+    const box = await card.evaluate((el) => el.getBoundingClientRect().toJSON());
+    expect(menu.id).toBe("fresh");
+    expect(menu.x).toBeCloseTo(box.x + 20, 0);
+    expect(menu.y).toBeCloseTo(box.y + 10, 0);
+    expect(menu.items).toEqual([
+      { id: "move:needs-testing", label: "Move to Needs testing" },
+      { id: "move:waiting-for-review", label: "Move to Waiting for review" },
+      { id: "move:done", label: "Move to Done" },
+    ]);
+    // The Board's own menu stays closed.
+    await expect(board(page).getByRole("menu")).toHaveCount(0);
+
+    await harness(page, (h) => h.pickMenu("move:done"));
+    await expect(column(page, "done").getByTestId("card-fresh")).toBeVisible();
+    await expect.poll(() => actions(page)).toEqual([stageSet("fresh", "done")]);
+  });
+
+  test("the split view's Session is outlined", async ({ page }) => {
+    await expect(board(page).getByTestId("card-fresh")).toBeVisible();
+    await harness(page, (h) => h.pushSelection("fresh"));
+    await expect(board(page).getByTestId("card-fresh")).toHaveAttribute("aria-current", "true");
+    await expect(board(page).locator(".card.selected")).toHaveCount(1);
+    await harness(page, (h) => h.pushSelection(null));
+    await expect(board(page).locator(".card.selected")).toHaveCount(0);
+  });
+
   for (const flag of ["readOnly", "cityhall"] as const) {
     test(`${flag} context: no drag and no Move to`, async ({ page }) => {
       await restart(page, { context: { [flag]: true } });
       const card = column(page, "in-progress").getByTestId("card-fresh");
       await expect(card).toBeVisible();
-      await expect(card.getByRole("button", { name: "Move to…" })).toHaveCount(0);
+      await expect(card.getByRole("button", { name: "Session actions" })).toHaveCount(0);
 
       await card.click({ button: "right" });
       await expect(board(page).getByRole("menu")).toHaveCount(0);
       await drag(page, card, column(page, "done"));
       await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
       expect(await actions(page)).toEqual([]);
+    });
+
+    test(`${flag} context: the dashboard's session menu opens without Move to items`, async ({ page }) => {
+      await restart(page, { hostMenu: true, context: { [flag]: true } });
+      await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Session actions" }).click();
+      await expect.poll(() => harness(page, (h) => h.menus)).toMatchObject([{ id: "fresh", items: [] }]);
     });
   }
 });
@@ -628,7 +694,7 @@ test.describe("phone", () => {
 
   test("Move to sets a Stage", async ({ page }) => {
     await dots(page).nth(2).tap();
-    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Move to…" }).tap();
+    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Session actions" }).tap();
     await board(page).getByRole("menu").getByRole("menuitemradio", { name: "Needs testing" }).tap();
     await expect(column(page, "needs-testing").getByTestId("card-fresh")).toBeAttached();
     await expect.poll(() => harness(page, (h) => h.actions)).toEqual([

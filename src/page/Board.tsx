@@ -37,6 +37,8 @@ export interface Editor {
 }
 
 type OnMenu = (card: Card, x: number, y: number) => void;
+// Opens the dashboard's session menu at frame coordinates.
+export type HostMenu = OnMenu;
 
 // The open "Move to" menu: its Card and viewport position.
 interface Menu {
@@ -130,11 +132,15 @@ function CardBody({ card }: { card: Card }) {
 
 function CardView({
   card,
+  selected,
+  draggable,
   onOpen,
   onMenu,
   send,
 }: {
   card: Card;
+  selected: boolean;
+  draggable: boolean;
   onOpen: (id: string) => void;
   onMenu?: OnMenu;
   send?: { label: string; onClick: () => void };
@@ -143,15 +149,16 @@ function CardView({
   const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
     id: CARD + id,
     data: card,
-    disabled: !onMenu,
+    disabled: !draggable,
   });
   // Keyboard drag is for Columns: Enter on a Card opens it, Move to moves it.
   const pointer = Object.fromEntries(Object.entries(listeners ?? {}).filter(([name]) => name !== "onKeyDown"));
   return (
     <div
       ref={setNodeRef}
-      className={`card${isDragging ? " dragging" : ""}`}
+      className={`card${isDragging ? " dragging" : ""}${selected ? " selected" : ""}`}
       data-testid={`card-${id}`}
+      aria-current={selected || undefined}
       onContextMenu={
         onMenu &&
         ((e) => {
@@ -174,7 +181,7 @@ function CardView({
         <button
           type="button"
           className="card-menu"
-          aria-label="Move to…"
+          aria-label="Session actions"
           aria-haspopup="menu"
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
@@ -193,10 +200,17 @@ function ColumnView({
   cards,
   total,
   searching,
+  selected,
   onOpen,
   onMenu,
   editor,
-}: FilteredColumn & { searching: boolean; onOpen: (id: string) => void; onMenu: OnMenu; editor?: Editor }) {
+}: FilteredColumn & {
+  searching: boolean;
+  selected: string | null;
+  onOpen: (id: string) => void;
+  onMenu?: OnMenu;
+  editor?: Editor;
+}) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging, isOver, active } =
     useSortable({ id: column.id, disabled: !editor });
   // The header is the drag handle; spreading nothing keeps it inert when read-only.
@@ -250,8 +264,10 @@ function ColumnView({
           <li key={card.session.id}>
             <CardView
               card={card}
+              selected={card.session.id === selected}
+              draggable={!!editor}
               onOpen={onOpen}
-              onMenu={editor && onMenu}
+              onMenu={onMenu}
               send={editor && send && { label: send.label, onClick: () => editor.onSend(column, [card.session.id]) }}
             />
           </li>
@@ -330,14 +346,19 @@ function MoveMenu({
 
 export function Board({
   columns,
+  selected,
   onOpen,
   onExport,
   editor,
+  hostMenu,
 }: {
   columns: BoardColumn[];
+  selected: string | null;
   onOpen: (id: string) => void;
   onExport: () => void;
   editor?: Editor;
+  // Absent on a dashboard without session.contextMenu, where the Board falls back to its own Move to menu.
+  hostMenu?: HostMenu;
 }) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => filterBoard(columns, query), [columns, query]);
@@ -365,7 +386,8 @@ export function Board({
   const [dragged, setDragged] = useState<Card | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
-  const openMenu = useCallback<OnMenu>((card, x, y) => setMenu({ card, x, y }), []);
+  const openMoveMenu = useCallback<OnMenu>((card, x, y) => setMenu({ card, x, y }), []);
+  const openMenu = hostMenu ?? (editor && openMoveMenu);
   // On a phone one Column fills the Board; the indicator tracks which.
   const boardRef = useRef<HTMLElement>(null);
   const [visible, setVisible] = useState(0);
@@ -430,7 +452,15 @@ export function Board({
         >
           <SortableContext items={columns.map((b) => b.column.id)} strategy={horizontalListSortingStrategy}>
             {shown.map((b) => (
-              <ColumnView key={b.column.id} {...b} searching={searching} onOpen={onOpen} onMenu={openMenu} editor={editor} />
+              <ColumnView
+                key={b.column.id}
+                {...b}
+                searching={searching}
+                selected={selected}
+                onOpen={onOpen}
+                onMenu={openMenu || undefined}
+                editor={editor}
+              />
             ))}
           </SortableContext>
           {/* Rendered outside the Columns, so their scrolling does not clip it. */}
