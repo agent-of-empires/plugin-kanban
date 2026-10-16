@@ -164,15 +164,16 @@ test("adds, renames, reorders and deletes Columns through config.set", async ({ 
   await edit.getByLabel("Name").press("Enter");
   await expect(titles(page)).toHaveText([...DEFAULT_TITLES, "Blocked on me"]);
 
-  await dragHeader(page, "Blocked on me", "Action needed");
-  await expect(titles(page)).toHaveText(["Blocked on me", ...DEFAULT_TITLES]);
-
   // "shipped" has Stage done; with Done gone it falls to the leftmost Stage.
   await b.getByRole("button", { name: "Edit column Done", exact: true }).click();
   await b.getByRole("dialog", { name: "Edit column" }).getByRole("button", { name: "Delete" }).click();
+  await expect(titles(page)).toHaveText([...DEFAULT_TITLES.slice(0, -1), "Blocked on me"]);
+  await expect(column(page, "in-progress").getByTestId("card-shipped")).toBeVisible();
+
+  // Last on purpose: dnd-kit swallows clicks for 50ms after a drop.
+  await dragHeader(page, "Blocked on me", "Action needed");
   const after = ["Blocked on me", ...DEFAULT_TITLES.slice(0, -1)];
   await expect(titles(page)).toHaveText(after);
-  await expect(column(page, "in-progress").getByTestId("card-shipped")).toBeVisible();
 
   // Edits render before the bridge delivers them.
   await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(4);
