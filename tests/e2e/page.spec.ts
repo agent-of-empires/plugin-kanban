@@ -256,6 +256,50 @@ test("a rejected save rolls the edit back and says so", async ({ page }) => {
   await expect(titles(page)).toHaveText(DEFAULT_TITLES);
 });
 
+test("Export shows the current Board config as JSON", async ({ page }) => {
+  await board(page).getByRole("button", { name: "Export" }).click();
+  const dialog = board(page).getByRole("dialog", { name: "Export Board" });
+  const json = dialog.getByLabel("Board JSON");
+  await expect(json).toHaveJSProperty("readOnly", true);
+  expect(JSON.parse(await json.inputValue())).toEqual(DEFAULT_CONFIG);
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test("Import validates, then replaces the Board through config.set", async ({ page }) => {
+  const b = board(page);
+  await b.getByRole("button", { name: "Import" }).click();
+  const dialog = b.getByRole("dialog", { name: "Import Board" });
+  const json = dialog.getByLabel("Board JSON");
+  const replace = dialog.getByRole("button", { name: "Replace Board" });
+  await expect(replace).toBeDisabled();
+
+  await json.fill("{ nope");
+  await expect(dialog.getByRole("alert")).toContainText("not valid JSON");
+  await expect(replace).toBeDisabled();
+
+  const stage = { id: "todo", title: "Todo", kind: "stage", rules: [], on_enter: "none" };
+  await json.fill(JSON.stringify({ version: 1, columns: [{ ...stage, color: "red" }] }));
+  await expect(dialog.getByRole("alert")).toHaveText('column 0: unknown key "color"');
+  await expect(replace).toBeDisabled();
+
+  // A file loads into the text box.
+  const imported = { version: 1, columns: [stage, { ...stage, id: "later", title: "Later" }] };
+  await dialog.getByLabel("Board file").setInputFiles({
+    name: "board.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(imported)),
+  });
+  await expect(dialog).toContainText("Replaces this Board's 6 Columns with these 2.");
+  await replace.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(titles(page)).toHaveText(["Todo", "Later"]);
+  // Sessions whose Stage column is gone fall to the leftmost Stage column.
+  await expect(column(page, "todo").getByTestId("card-shipped")).toBeVisible();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(1);
+  expect(await harness(page, (h) => h.actions[0])).toEqual({ method: "config.set", params: { config: imported } });
+});
+
 type Rules = unknown[][];
 // Edits render before the bridge delivers them, so wait for the nth action.
 async function sentRules(page: Page, n: number, id: string) {
@@ -350,6 +394,8 @@ for (const flag of ["readOnly", "cityhall"] as const) {
     );
     await expect(titles(page)).toHaveText(DEFAULT_TITLES);
     await expect(board(page).getByRole("button", { name: "+ Add column" })).toHaveCount(0);
+    await expect(board(page).getByRole("button", { name: "Import" })).toHaveCount(0);
+    await expect(board(page).getByRole("button", { name: "Export" })).toBeVisible();
     await expect(board(page).getByRole("button", { name: /^Edit column/ })).toHaveCount(0);
     await expect(board(page).locator("h2[aria-roledescription]")).toHaveCount(0);
   });

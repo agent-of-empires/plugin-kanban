@@ -22,6 +22,9 @@ body {
 }
 
 .toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   padding: 12px 12px 0;
 }
 
@@ -463,6 +466,25 @@ button.danger {
 
 .column-dialog.wide {
   width: min(720px, 94vw);
+}
+
+.config-text {
+  box-sizing: border-box;
+  width: 100%;
+  height: 50vh;
+  margin: 8px 0;
+  padding: 8px;
+  background: var(--color-surface-900);
+  border: 1px solid var(--color-surface-700);
+  border-radius: 6px;
+  color: inherit;
+  font: 12px/1.4 "Geist Mono", ui-monospace, monospace;
+  resize: vertical;
+}
+
+.error {
+  color: var(--color-status-error);
+  font-size: 12px;
 }
 
 .column-dialog .rules {

@@ -4,6 +4,7 @@ import { type BridgeSession, type UiEntry, buildBoard, findSnapshot, rowColumnSl
 import { Board, type Editor } from "./Board";
 import type { Bridge, BridgeContext } from "./bridge";
 import { ColumnDialog } from "./ColumnDialog";
+import { ConfigDialog } from "./ConfigDialog";
 
 // The bridge has no change push, so the page polls.
 const POLL_MS = 2_000;
@@ -92,6 +93,7 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
   const pendingRef = useRef<Config | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Column | "new" | null>(null);
+  const [configDialog, setConfigDialog] = useState<"export" | "import" | null>(null);
   const [moves, setMoves] = useState<Record<string, Move>>({});
   const nextReq = useRef(0);
   // The req of each Session's unsettled move, read by its timer and rejection.
@@ -203,13 +205,14 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
           onEdit: setDialog,
           onMove: (id, to) => save(moveColumn(config, id, to)),
           onStage: setStage,
+          onImport: () => setConfigDialog("import"),
         }
       : undefined;
   const editing = dialog === "new" ? null : dialog;
 
   return (
     <>
-      <Board columns={columns} onOpen={openSession} editor={editor} />
+      <Board columns={columns} onOpen={openSession} onExport={() => setConfigDialog("export")} editor={editor} />
       {editor && dialog && (
         <ColumnDialog
           column={editing}
@@ -231,6 +234,20 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
             if (next) save(next);
             setDialog(null);
           }}
+        />
+      )}
+      {configDialog && (
+        <ConfigDialog
+          config={config}
+          onImport={
+            editor && configDialog === "import"
+              ? (next) => {
+                  save(next);
+                  setConfigDialog(null);
+                }
+              : undefined
+          }
+          onClose={() => setConfigDialog(null)}
         />
       )}
       {toast && (
