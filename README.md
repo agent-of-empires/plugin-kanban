@@ -145,7 +145,8 @@ Card is outlined.
 
 A Card's `⋯` button or right-click opens the dashboard's session menu, the
 same one as the sidebar: rename, pin, snooze, archive, trash and the rest,
-plus a **Move to** entry per Stage column. On a dashboard without that menu,
+plus, on an editable Board, a **Move to** entry for each other Stage column,
+and for the Card's own archive or trash Column to retry its action. On a dashboard without that menu,
 `⋯` opens the Board's own **Move to** menu.
 
 ### Moving Cards
