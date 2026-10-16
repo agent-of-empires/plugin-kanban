@@ -1,0 +1,235 @@
+name: Release
+
+# Triggered by the tag that tag-release-pr.yml pushes. Reruns checks.yml on the
+# tagged commit (so the committed dist/ matches the build), computes the source
+# tree hash core pins in plugins/featured.toml, and publishes a GitHub Release
+# whose notes are the git-cliff section for this tag plus the tree hash and the
+# manifest's aoe_version floor.
+#
+# After a successful publish, the `featured-pr` job opens a PR on
+# agent-of-empires/agent-of-empires that pins this version's tree hash. It needs
+# the AOE_FEATURED_PR_TOKEN secret (cross-repo PR write) and runs behind the
+# required-reviewer `release` environment.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  # The aoe release whose `aoe plugin hash` computes the tree hash. Pinned so a
+  # tag always hashes the same way; bump it deliberately if core changes the
+  # hash algorithm.
+  AOE_HASH_TOOL: v1.20.0
+
+jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+    permissions:
+      contents: read
+
+  release:
+    name: Publish release
+    needs: checks
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+      tree_hash: ${{ steps.build.outputs.tree_hash }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2.82.2
+        with:
+          tool: git-cliff
+
+      - name: Download the aoe hash tool
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bindir="$(mktemp -d)"
+          gh release download "$AOE_HASH_TOOL" --repo agent-of-empires/agent-of-empires \
+            --pattern "aoe-linux-amd64.tar.gz*" --dir "$bindir"
+          (cd "$bindir" && sha256sum -c aoe-linux-amd64.tar.gz.sha256 && tar -xzf aoe-linux-amd64.tar.gz)
+          echo "AOE_BIN=${bindir}/aoe-linux-amd64" >> "$GITHUB_ENV"
+
+      - name: Build archive, tree hash and release notes
+        id: build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if ! echo "$tag" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "::error::Unexpected release tag: $tag"
+            exit 1
+          fi
+
+          # Hash the tagged commit's tracked tree (git archive strips .git and
+          # untracked output and keeps the committed dist/), matching the host's
+          # clone-then-strip fetch.
+          work="$(mktemp -d)"
+          git archive --format=tar HEAD | tar -x -C "$work"
+          tree_hash="$("$AOE_BIN" plugin hash "$work")"
+          if ! echo "$tree_hash" | grep -qE '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::Bad tree hash: $tree_hash"
+            exit 1
+          fi
+          aoe_version="$(python3 -c 'import tomllib; print(tomllib.load(open("aoe-plugin.toml", "rb"))["aoe_version"])')"
+
+          archive="plugin-kanban-${tag}.tar.gz"
+          git archive --format=tar.gz --prefix="plugin-kanban-${tag}/" -o "$archive" HEAD
+          sha256sum "$archive" > "${archive}.sha256"
+          sha="$(cut -d' ' -f1 < "${archive}.sha256")"
+
+          git cliff --config cliff.toml --current --output RELEASE_NOTES.md
+          {
+            echo ""
+            echo "---"
+            echo "- Requires Agent of Empires \`${aoe_version}\`"
+            echo "- Tree hash (\`aoe plugin hash\`, aoe ${AOE_HASH_TOOL}): \`${tree_hash}\`"
+            echo "- Source commit: ${GITHUB_SHA}"
+            echo "- Archive sha256: \`${sha}\`"
+          } >> RELEASE_NOTES.md
+
+          {
+            echo "archive=$archive"
+            echo "version=${tag#v}"
+            echo "tree_hash=$tree_hash"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archive="${{ steps.build.outputs.archive }}"
+          gh release create "$GITHUB_REF_NAME" "$archive" "${archive}.sha256" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file RELEASE_NOTES.md
+
+  featured-pr:
+    name: Open AoE featured-index PR
+    needs: release
+    runs-on: ubuntu-latest
+    # The required-reviewer `release` environment guards AOE_FEATURED_PR_TOKEN
+    # (a cross-repo write credential) the same way it guards the release PR.
+    environment: release
+    # The default GITHUB_TOKEN only needs to read this repo; the cross-repo
+    # write goes through the PAT below, not GITHUB_TOKEN.
+    permissions:
+      contents: read
+    steps:
+      - name: Skip when cross-repo token is unset
+        id: gate
+        env:
+          TOKEN: ${{ secrets.AOE_FEATURED_PR_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::AOE_FEATURED_PR_TOKEN not set; skipping featured-index PR. Pin the tree hash from the release notes by hand."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout plugin-kanban at the released tag
+        if: steps.gate.outputs.skip == 'false'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.skip == 'false'
+        with:
+          python-version: "3.12"
+
+      - name: Install tomlkit
+        if: steps.gate.outputs.skip == 'false'
+        run: pip install tomlkit==0.15.2
+
+      - name: Checkout agent-of-empires
+        if: steps.gate.outputs.skip == 'false'
+        uses: actions/checkout@v4
+        with:
+          repository: agent-of-empires/agent-of-empires
+          token: ${{ secrets.AOE_FEATURED_PR_TOKEN }}
+          path: aoe
+          fetch-depth: 0
+
+      - name: Open or update featured-index PR
+        if: steps.gate.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.AOE_FEATURED_PR_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+          TREE_HASH: ${{ needs.release.outputs.tree_hash }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          plugin_id="agent-of-empires.kanban"
+          source="gh:agent-of-empires/plugin-kanban"
+          featured="plugins/featured.toml"
+          branch="featured/kanban-v${VERSION}"
+          release_url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+
+          # Edit AoE's trust root through the tomlkit-based updater. It exits
+          # nonzero (changing nothing) if this version is already pinned to a
+          # different hash, which would signal a retag, tamper, or algo drift.
+          status="$(python3 scripts/featured_index.py update \
+            "aoe/${featured}" "$plugin_id" "$source" "$VERSION" "$TREE_HASH")"
+
+          if [ "$status" = "unchanged" ]; then
+            echo "::notice::${plugin_id} ${VERSION} already pinned; nothing to do"
+            exit 0
+          fi
+
+          cd aoe
+          # Defense in depth: only featured.toml may have changed.
+          dirty="$(git status --porcelain --untracked-files=no | grep -v "^ M ${featured}\$" || true)"
+          if [ -n "$dirty" ]; then
+            echo "::error::unexpected changes in AoE checkout"
+            git status --porcelain
+            exit 1
+          fi
+
+          # Idempotent: if the deterministic branch already exists upstream,
+          # ensure a PR points at it rather than force-pushing over it.
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            open_pr="$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // ""')"
+            if [ -z "$open_pr" ]; then
+              echo "::warning::branch $branch exists upstream with no open PR; inspect manually, not force-updating"
+            else
+              echo "::notice::PR for $branch already open (#$open_pr)"
+            fi
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add "$featured"
+          git commit -m "chore(plugins): pin ${plugin_id} ${VERSION}"
+          git push -u origin "$branch"
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore(plugins): pin ${plugin_id} ${VERSION}" \
+            --body "$(printf '%s\n' \
+              "Automated by plugin-kanban release CI." \
+              "" \
+              "Pins \`${plugin_id}\` \`${VERSION}\` in \`${featured}\`." \
+              "" \
+              "- Version: ${VERSION}" \
+              "- Tree hash: \`${TREE_HASH}\`" \
+              "- Hash tool: aoe ${AOE_HASH_TOOL}" \
+              "- Release: ${release_url}")"
