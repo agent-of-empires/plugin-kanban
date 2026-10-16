@@ -89,6 +89,13 @@ above the Board, to change Column. To drag a Card to another Column, long press
 it and hold it at the screen edge until that Column scrolls in. **Move to** on
 the `⋯` button is the easier way; long press does not open it on touch.
 
+A Stage column can archive or trash what enters it ("When a Card is dropped
+here" in the Column dialog). Moving a Card there records the Stage, then, once
+the Board shows it written, archives or trashes the Session without asking, so
+the Card leaves the Board; restore it from the dashboard. Only a move triggers
+it: a restored Session sits in that Column untouched until moved again.
+Dropping it on the same Column retries a failed archive or trash.
+
 ## Where data lives
 
 The worker owns all Board state, so every device sees the same Board.

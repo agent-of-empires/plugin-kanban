@@ -80,15 +80,22 @@ export function newColumnId(taken: readonly string[]): string {
   return id;
 }
 
-export function addColumn(config: Config, title: string, kind: Column["kind"]): Config {
+export function addColumn(config: Config, title: string, kind: Column["kind"], on_enter: Column["on_enter"] = "none"): Config {
   const id = newColumnId(config.columns.map((c) => c.id));
-  return { ...config, columns: [...config.columns, { id, title, kind, rules: [], on_enter: "none" }] };
+  return { ...config, columns: [...config.columns, { id, title, kind, rules: [], on_enter }] };
 }
 
-export const renameColumn = (config: Config, id: string, title: string): Config => ({
+export const editColumn = (config: Config, id: string, changes: Pick<Column, "title" | "on_enter">): Config => ({
   ...config,
-  columns: config.columns.map((c) => (c.id === id ? { ...c, title } : c)),
+  columns: config.columns.map((c) => (c.id === id ? { ...c, ...changes } : c)),
 });
+
+// The bridge method a Card dropped onto `column` triggers. Only Stage columns
+// take drops, so a Signal column's on_enter never fires.
+export function enterAction(column: Column | undefined): "session.archive" | "session.trash" | undefined {
+  if (column?.kind !== "stage" || column.on_enter === "none") return undefined;
+  return column.on_enter === "archive" ? "session.archive" : "session.trash";
+}
 
 // undefined when `id` is the last Stage column, which the Board cannot lose.
 export function deleteColumn(config: Config, id: string): Config | undefined {

@@ -6,7 +6,7 @@ interface Props {
   column: Column | null;
   // False on the last Stage column.
   canDelete: boolean;
-  onSave: (title: string, kind: Column["kind"]) => void;
+  onSave: (title: string, kind: Column["kind"], onEnter: Column["on_enter"]) => void;
   onDelete: () => void;
   onClose: () => void;
 }
@@ -16,13 +16,16 @@ export function ColumnDialog({ column, canDelete, onSave, onDelete, onClose }: P
   const ref = useRef<HTMLDialogElement>(null);
   const [title, setTitle] = useState(column?.title ?? "");
   const [kind, setKind] = useState<Column["kind"]>(column?.kind ?? "stage");
+  // Hidden on Signal columns, which take no drops; a stored value is kept.
+  const [onEnter, setOnEnter] = useState<Column["on_enter"]>(column?.on_enter ?? "none");
   // Guarded because StrictMode runs effects twice.
   useEffect(() => {
     if (!ref.current?.open) ref.current?.showModal();
   }, []);
 
   const name = title.trim();
-  const save = () => name && onSave(name, kind);
+  // A new Column switched to Signal drops any pick made while it was a Stage.
+  const save = () => name && onSave(name, kind, column || kind === "stage" ? onEnter : "none");
   return (
     <dialog ref={ref} className="column-dialog" aria-label={column ? "Edit column" : "Add column"} onClose={onClose}>
       <h3>{column ? "Edit column" : "Add column"}</h3>
@@ -46,6 +49,16 @@ export function ColumnDialog({ column, canDelete, onSave, onDelete, onClose }: P
           Signal: pulls Cards in while its Rules match
         </label>
       </fieldset>
+      {kind === "stage" && (
+        <label>
+          When a Card is dropped here
+          <select value={onEnter} onChange={(e) => setOnEnter(e.target.value as Column["on_enter"])}>
+            <option value="none">Nothing</option>
+            <option value="archive">Archive the Session</option>
+            <option value="trash">Move the Session to the trash</option>
+          </select>
+        </label>
+      )}
       <p className="hint">
         Signal columns are checked left to right and the leftmost match holds the Card; drag Columns to change that
         order.
