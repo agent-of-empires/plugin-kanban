@@ -11,7 +11,7 @@ const POLL_MS = 2_000;
 // reply only acknowledges delivery; the worker drops a config it rejects.
 const CONFIRM_MS = 10_000;
 // The worker ignores an invalid Stage write without a reply, so an unconfirmed
-// move is dropped after this long. Matches core's action spinner timeout.
+// move rolls back after this long. Matches core's action spinner timeout.
 const MOVE_MS = 15_000;
 
 interface Data {
@@ -85,6 +85,8 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
   const [dialog, setDialog] = useState<Column | "new" | null>(null);
   const [moves, setMoves] = useState<Record<string, Move>>({});
   const nextReq = useRef(0);
+  // The req of each Session's unsettled move, read by its timer and rejection.
+  const liveReq = useRef<Record<string, number>>({});
 
   const snapshot = useMemo(() => data && context && findSnapshot(data.entries, context.pluginId, context.pageId), [data, context]);
   useEffect(() => {
@@ -96,14 +98,13 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
   // Drops the Stage writes this snapshot confirms.
   useEffect(() => {
     if (!data || !snapshot) return;
-    setMoves((prev) => {
-      const confirmed = Object.keys(prev).filter((id) => {
-        const m = prev[id];
-        return m.ackSeq !== undefined && data.seq > m.ackSeq && snapshot.stages[id] === m.columnId;
-      });
-      return confirmed.length ? without(prev, confirmed) : prev;
-    });
-  }, [data, snapshot]);
+    const confirmed = Object.entries(moves).filter(
+      ([id, m]) => m.ackSeq !== undefined && data.seq > m.ackSeq && snapshot.stages[id] === m.columnId,
+    );
+    if (!confirmed.length) return;
+    for (const [id, m] of confirmed) if (liveReq.current[id] === m.req) delete liveReq.current[id];
+    setMoves((prev) => Object.fromEntries(Object.entries(prev).filter(([id, m]) => liveReq.current[id] === m.req)));
+  }, [data, snapshot, moves]);
   const config = pending ?? snapshot?.config;
   const columns = useMemo(() => {
     if (!data || !snapshot || !config) return null;
@@ -145,20 +146,26 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
     // A Stage that is only the leftmost fallback is still written, to record it.
     if ((moves[sessionId]?.columnId ?? snapshot.stages[sessionId]) === columnId) return;
     const req = ++nextReq.current;
-    // Settles this write only if no later write of the Session replaced it.
-    const settle = (fn: (prev: Record<string, Move>) => Record<string, Move>) =>
-      setMoves((prev) => (prev[sessionId]?.req === req ? fn(prev) : prev));
-    const drop = () => settle((prev) => without(prev, [sessionId]));
+    liveReq.current[sessionId] = req;
     setMoves((prev) => ({ ...prev, [sessionId]: { columnId, req } }));
-    setTimeout(drop, MOVE_MS);
+    setSaveFailed(false);
+    // Only the Session's latest move may roll back, so an older one never
+    // undoes a newer one.
+    const fail = () => {
+      if (liveReq.current[sessionId] !== req) return;
+      delete liveReq.current[sessionId];
+      setMoves((prev) => without(prev, [sessionId]));
+      setSaveFailed(true);
+    };
+    setTimeout(fail, MOVE_MS);
     bridge.request("action", { method: "stage.set", params: { sessionId, columnId } }).then(
       () => {
         const ackSeq = pollSeq.current;
-        settle((prev) => ({ ...prev, [sessionId]: { ...prev[sessionId], ackSeq } }));
+        setMoves((prev) => (prev[sessionId]?.req === req ? { ...prev, [sessionId]: { ...prev[sessionId], ackSeq } } : prev));
       },
       (e: Error) => {
         console.error(`[kanban] stage.set failed: ${e.message}`);
-        drop();
+        fail();
       },
     );
   };

@@ -309,9 +309,10 @@ test.describe("moving Cards", () => {
     await expect(board(page).getByRole("menu")).toHaveCount(0);
   });
 
-  test("a refused write puts the Card back", async ({ page }) => {
+  test("a refused write puts the Card back and says so", async ({ page }) => {
     await restart(page, { rejectActions: true });
     await drag(page, column(page, "in-progress").getByTestId("card-fresh"), column(page, "done"));
+    await expect(board(page).getByRole("alert")).toHaveText("Couldn't save the Board.");
     await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
     await expect(column(page, "done").getByTestId("card-fresh")).toHaveCount(0);
   });
