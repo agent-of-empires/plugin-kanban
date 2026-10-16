@@ -208,7 +208,7 @@ export function buildBoard(sessions: BridgeSession[], entries: UiEntry[], snapsh
 // a case-insensitive substring of any listed field.
 function cardMatches({ session, repo, branch }: Card, q: string): boolean {
   return [session.title, session.project_path, repo, branch, session.tool, session.group_path].some((f) =>
-    f?.toLowerCase().includes(q),
+    typeof f === "string" && f.toLowerCase().includes(q),
   );
 }
 

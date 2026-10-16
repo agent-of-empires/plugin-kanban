@@ -232,6 +232,11 @@ test("a blank query keeps every Card", () => {
   expect(matched("  ").sort()).toEqual(["a", "b", "c"]);
 });
 
+test("search skips non-string fields a malformed bridge row carries", () => {
+  const odd = session("x", { tool: 42 as unknown as string, group_path: {} as unknown as string });
+  expect(filterBoard(board([odd]), "42").flatMap((b) => b.cards)).toEqual([]);
+});
+
 test("search trims the query", () => {
   expect(matched("  codex ")).toEqual(["b"]);
 });
