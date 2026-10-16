@@ -42,6 +42,7 @@ body {
 }
 
 .board {
+  position: relative;
   display: flex;
   flex: 1;
   gap: 12px;
@@ -141,8 +142,10 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
-  /* Leaves vertical swipes to the Column; a long press starts a drag. */
-  touch-action: pan-y;
+  /* Swipes scroll; a long press starts a drag. */
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 .card-open:focus-visible,
@@ -324,6 +327,61 @@ button.primary {
 
 button.danger {
   color: var(--color-status-error);
+}
+
+.indicator {
+  display: none;
+}
+
+/* Phone: one Column per screen, snapping, with the indicator to jump. */
+@media (max-width: 640px) {
+  .search {
+    width: 100%;
+  }
+
+  .indicator {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 12px 0;
+  }
+
+  .indicator button {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: none;
+    border: 0;
+  }
+
+  .indicator button::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-surface-600);
+  }
+
+  .indicator button[aria-current="true"]::before {
+    background: var(--color-accent-500);
+  }
+
+  .board {
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 12px;
+  }
+
+  /* Snapping would fight the autoscroll that carries a drag to the next Column. */
+  .board:has(.dragging) {
+    scroll-snap-type: none;
+  }
+
+  .column {
+    flex-basis: 100%;
+    scroll-snap-align: start;
+  }
 }
 
 .add-column {

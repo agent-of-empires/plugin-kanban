@@ -97,6 +97,8 @@ function CardView({ card, onOpen, onMenu }: { card: Card; onOpen: (id: string) =
         onMenu &&
         ((e) => {
           e.preventDefault();
+          // Android fires this on a long press, which starts a drag instead.
+          if ("pointerType" in e.nativeEvent && e.nativeEvent.pointerType === "touch") return;
           onMenu(card, e.clientX, e.clientY);
         })
       }
@@ -265,6 +267,17 @@ export function Board({ columns, onOpen, editor }: { columns: BoardColumn[]; onO
   const [menu, setMenu] = useState<Menu | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const openMenu = useCallback<OnMenu>((card, x, y) => setMenu({ card, x, y }), []);
+  // On a phone one Column fills the Board; the indicator tracks which.
+  const boardRef = useRef<HTMLElement>(null);
+  const [visible, setVisible] = useState(0);
+  const columnEls = () => [...boardRef.current!.querySelectorAll<HTMLElement>(".column")];
+  const onScroll = () => {
+    const el = boardRef.current!;
+    const mid = el.scrollLeft + el.clientWidth / 2;
+    const els = columnEls();
+    const i = els.findIndex((c) => c.offsetLeft + c.offsetWidth >= mid);
+    setVisible(i === -1 ? els.length - 1 : i);
+  };
 
   const onDragStart = ({ active }: DragStartEvent) => {
     if (String(active.id).startsWith(CARD)) setDragged(active.data.current as Card);
@@ -288,7 +301,18 @@ export function Board({ columns, onOpen, editor }: { columns: BoardColumn[]; onO
           onChange={(e) => setQuery(e.target.value)}
         />
       </header>
-      <main className="board">
+      <nav className="indicator" aria-label="Columns">
+        {shown.map((b, i) => (
+          <button
+            key={b.column.id}
+            type="button"
+            aria-label={b.column.title}
+            aria-current={i === Math.min(visible, shown.length - 1) || undefined}
+            onClick={() => columnEls()[i].scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" })}
+          />
+        ))}
+      </nav>
+      <main className="board" ref={boardRef} onScroll={onScroll}>
         <DndContext
           sensors={sensors}
           collisionDetection={collisionDetection}
