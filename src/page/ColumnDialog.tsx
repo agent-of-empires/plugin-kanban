@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Column, Condition } from "../shared/board-config";
+import type { Facet } from "../shared/board-model";
 import { RuleBuilder, rulesValid } from "./RuleBuilder";
 
 interface Props {
@@ -9,13 +10,15 @@ interface Props {
   canDelete: boolean;
   // Row-column slot ids by plugin id, for the Rule builder.
   slots: Record<string, string[]>;
+  // Plugin filter facets, offered as Rule fields.
+  facets: Facet[];
   onSave: (title: string, kind: Column["kind"], onEnter: Column["on_enter"], rules: Condition[][]) => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
 // No <form>: the page's sandbox has no allow-forms, so a form never submits.
-export function ColumnDialog({ column, canDelete, slots, onSave, onDelete, onClose }: Props) {
+export function ColumnDialog({ column, canDelete, slots, facets, onSave, onDelete, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const [title, setTitle] = useState(column?.title ?? "");
   const [kind, setKind] = useState<Column["kind"]>(column?.kind ?? "stage");
@@ -69,7 +72,7 @@ export function ColumnDialog({ column, canDelete, slots, onSave, onDelete, onClo
         <fieldset>
           <legend>Rules</legend>
           <p className="hint">A Rule matches when all its conditions hold; the Column holds a Card while any Rule matches.</p>
-          <RuleBuilder rules={rules} slots={slots} onChange={setRules} />
+          <RuleBuilder rules={rules} slots={slots} facets={facets} onChange={setRules} />
         </fieldset>
       )}
       <p className="hint">

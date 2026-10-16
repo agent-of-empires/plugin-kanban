@@ -42,6 +42,11 @@ function onlyKeys(obj, keys, where) {
 function checkField(field, where) {
   if (SESSION_FIELDS.includes(field)) return;
   if (!isRecord(field)) throw new Error(`${where}: unknown field`);
+  if ("facet_id" in field) {
+    onlyKeys(field, ["plugin_id", "facet_id"], where);
+    if (!isName(field.plugin_id) || !isName(field.facet_id)) throw new Error(`${where}: plugin_id and facet_id required`);
+    return;
+  }
   onlyKeys(field, ["plugin_id", "slot_id", "attr"], where);
   if (!isName(field.plugin_id) || !isName(field.slot_id)) throw new Error(`${where}: plugin_id and slot_id required`);
   if (field.attr !== "tone" && field.attr !== "text") throw new Error(`${where}: attr must be tone or text`);

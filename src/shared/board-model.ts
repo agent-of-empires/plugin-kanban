@@ -1,6 +1,6 @@
 // Board model: places Sessions on the Board. Pure, so the page renders it and
 // Vitest covers it; no Node or DOM imports.
-import { type Column, type Condition, type Config, DEFAULT_CONFIG, type PluginField, parseConfig } from "./board-config";
+import { type Column, type Condition, type Config, DEFAULT_CONFIG, parseConfig } from "./board-config";
 
 // A row of the bridge's sessions.list. The optional fields are not sent by
 // bridge v1 yet; absent means unset, so Rules on them do not match.
@@ -43,11 +43,28 @@ export interface Badge {
   tooltip?: string;
 }
 
+// A row column's text, as the sidebar shows it right of the badges.
+export interface RowColumn {
+  text: string;
+  tone: Tone;
+  tooltip?: string;
+}
+
+// A plugin's `filter-facet` entry: a named filter over one of its row columns.
+export interface Facet {
+  plugin_id: string;
+  id: string;
+  label: string;
+  column: string;
+  options: { value: string; label: string }[];
+}
+
 export interface Card {
   session: BridgeSession;
   repo: string;
   branch?: string;
   badges: Badge[];
+  columns: RowColumn[];
   // Id of the Session's resolved Stage column, wherever the Card sits.
   stageId: string;
   // Title of the Session's Stage, set when the Card sits in a Signal column.
@@ -113,12 +130,34 @@ export function rowColumnSlots(entries: UiEntry[]): Record<string, string[]> {
   return slots;
 }
 
+// Mirrors the dashboard's pluginFacetSpecs (web/src/lib/pluginUi.ts): an
+// entry without a label or column, or an option without a value, is skipped.
+export function facets(entries: UiEntry[]): Facet[] {
+  return entries.flatMap((e) => {
+    const { label, column, options } = e.payload;
+    if (e.slot !== "filter-facet" || e.session_id || typeof label !== "string" || !label) return [];
+    if (typeof column !== "string" || !column) return [];
+    const opts = (Array.isArray(options) ? options : [])
+      .filter(isRecord)
+      .filter((o) => typeof o.value === "string" && o.value)
+      .map((o) => ({ value: o.value as string, label: typeof o.label === "string" && o.label ? o.label : (o.value as string) }));
+    return [{ plugin_id: e.plugin_id, id: e.id, label, column, options: opts }];
+  });
+}
+
 function candidates(field: Condition["field"], session: BridgeSession, entries: UiEntry[]): unknown[] {
   if (typeof field === "string") return [session[field]];
-  const f: PluginField = field;
+  if ("facet_id" in field) {
+    const facet = facets(entries).find((f) => f.plugin_id === field.plugin_id && f.id === field.facet_id);
+    const cell = facet && rowColumns(entries, session).find((e) => e.plugin_id === facet.plugin_id && e.id === facet.column);
+    if (!facet || !cell || !Array.isArray(cell.payload.filter_values)) return [];
+    // One row column can back several facets, so keep only this one's options.
+    const own = facet.options.map((o) => o.value);
+    return cell.payload.filter_values.filter((v) => typeof v === "string" && (!own.length || own.includes(v)));
+  }
   return rowColumns(entries, session)
-    .filter((e) => matches(f.plugin_id, e.plugin_id) && matches(f.slot_id, e.id))
-    .map((e) => e.payload[f.attr]);
+    .filter((e) => matches(field.plugin_id, e.plugin_id) && matches(field.slot_id, e.id))
+    .map((e) => e.payload[field.attr]);
 }
 
 // Several plugin entries can match one condition: "is" needs any of them to
@@ -186,10 +225,22 @@ function badges(session: BridgeSession, entries: UiEntry[]): Badge[] {
       text: typeof b.text === "string" ? b.text : undefined,
       icon: typeof b.icon === "string" ? b.icon : undefined,
       tooltip: typeof b.tooltip === "string" ? b.tooltip : undefined,
-      tone: ((TONES as readonly unknown[]).includes(b.tone) ? b.tone : "neutral") as Tone,
+      tone: toneOf(b.tone),
     }))
     .filter((b) => b.text || b.icon);
 }
+
+const toneOf = (v: unknown): Tone => ((TONES as readonly unknown[]).includes(v) ? (v as Tone) : "neutral");
+
+// Blank text renders nothing in the sidebar, so it is dropped here too.
+const columnsOf = (session: BridgeSession, entries: UiEntry[]): RowColumn[] =>
+  rowColumns(entries, session)
+    .filter((e) => typeof e.payload.text === "string" && e.payload.text)
+    .map((e) => ({
+      text: e.payload.text as string,
+      tone: toneOf(e.payload.tone),
+      tooltip: typeof e.payload.tooltip === "string" ? e.payload.tooltip : undefined,
+    }));
 
 const basename = (path: string) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
 
@@ -214,6 +265,7 @@ export function buildBoard(sessions: BridgeSession[], entries: UiEntry[], snapsh
         repo: basename(repo),
         branch: session.worktree?.branch ?? session.workspace_repos?.[0]?.branch ?? undefined,
         badges: badges(session, entries),
+        columns: columnsOf(session, entries),
         stageId: stage.id,
         stageChip: signal ? stage.title : undefined,
       });
