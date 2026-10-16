@@ -103,6 +103,21 @@ which Card order uses.
 The search box matches title, path, repo, branch and agent, like the sidebar
 filter. Group names are not exposed to plugin pages yet, so they do not match.
 
+### One-click messages
+
+A Column can carry one predefined message ("One-click message" in its Column
+dialog: a button label, the message, and optionally a Stage to move the Card to
+afterwards). Each Card in it then shows a button that sends the message to that
+Session, and the Column header shows one that sends it to every Card shown, after
+a second click to confirm. Pair it with a Signal Rule, such as a GitHub comments
+facet, to nudge every Session that needs the same thing.
+
+The worker sends the Column's stored message, never text from the page, through
+the host's `sessions.message.send` (the `session.message` capability), then moves
+the Card only for Sessions that took it. The host marks the message as sent by
+this plugin and rate-limits it to 600 an hour. Failures reach the worker log, not
+the page. Hidden in read-only and CityHall mode.
+
 ### Making a plugin work with the Board
 
 A plugin's row columns and badges show on Cards as they do in the sidebar. To

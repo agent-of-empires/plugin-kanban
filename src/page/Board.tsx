@@ -31,6 +31,8 @@ export interface Editor {
   onEdit: (column: Column) => void;
   onMove: (id: string, to: number) => void;
   onStage: (sessionId: string, columnId: string) => void;
+  // Sends the Column's one-click message to these Sessions.
+  onSend: (column: Column, sessionIds: string[]) => void;
   onImport: () => void;
 }
 
@@ -126,7 +128,17 @@ function CardBody({ card }: { card: Card }) {
   );
 }
 
-function CardView({ card, onOpen, onMenu }: { card: Card; onOpen: (id: string) => void; onMenu?: OnMenu }) {
+function CardView({
+  card,
+  onOpen,
+  onMenu,
+  send,
+}: {
+  card: Card;
+  onOpen: (id: string) => void;
+  onMenu?: OnMenu;
+  send?: { label: string; onClick: () => void };
+}) {
   const { id } = card.session;
   const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
     id: CARD + id,
@@ -153,6 +165,11 @@ function CardView({ card, onOpen, onMenu }: { card: Card; onOpen: (id: string) =
       <button type="button" className="card-open" {...attributes} {...pointer} onClick={() => onOpen(id)}>
         <CardBody card={card} />
       </button>
+      {send && (
+        <button type="button" className="card-send" onClick={send.onClick}>
+          {send.label}
+        </button>
+      )}
       {onMenu && (
         <button
           type="button"
@@ -185,6 +202,11 @@ function ColumnView({
   // The header is the drag handle; spreading nothing keeps it inert when read-only.
   const handle = editor ? { ...attributes, ...listeners, "aria-roledescription": "draggable column" } : {};
   const cardOver = isOver && String(active?.id).startsWith(CARD);
+  const { send } = column;
+  const ids = cards.map((c) => c.session.id);
+  // Sends to many Sessions at once, so the first click asks and the second sends.
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => setConfirming(false), [ids.join()]);
   return (
     <section
       ref={setNodeRef}
@@ -197,6 +219,20 @@ function ColumnView({
         <h2 ref={setActivatorNodeRef} {...handle}>
           <span className="truncate">{column.title}</span> <span className="count">{searching ? `${cards.length}/${total}` : total}</span>
         </h2>
+        {editor && send && cards.length > 0 && (
+          <button
+            type="button"
+            className="column-send"
+            onClick={() => {
+              if (!confirming && cards.length > 1) return setConfirming(true);
+              setConfirming(false);
+              editor.onSend(column, ids);
+            }}
+            onBlur={() => setConfirming(false)}
+          >
+            {confirming ? `Send to ${cards.length}?` : cards.length > 1 ? `${send.label} (all)` : send.label}
+          </button>
+        )}
         {editor && (
           <button
             type="button"
@@ -211,7 +247,12 @@ function ColumnView({
       <ul>
         {cards.map((card) => (
           <li key={card.session.id}>
-            <CardView card={card} onOpen={onOpen} onMenu={editor && onMenu} />
+            <CardView
+              card={card}
+              onOpen={onOpen}
+              onMenu={editor && onMenu}
+              send={editor && send && { label: send.label, onClick: () => editor.onSend(column, [card.session.id]) }}
+            />
           </li>
         ))}
       </ul>

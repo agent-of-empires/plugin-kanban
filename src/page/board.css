@@ -557,3 +557,17 @@ button.danger {
   border-radius: 50%;
   background: var(--color-status-unread);
 }
+
+.card-send,
+.column-send {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.card-send {
+  margin: 0 10px 8px;
+}
+
+.column-send {
+  margin-right: 4px;
+}
