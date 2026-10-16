@@ -81,11 +81,6 @@ export function RuleBuilder({ rules, slots, facets, onChange }: Props) {
 
   return (
     <div className="rules">
-      <datalist id="rule-statuses">
-        {Object.keys(STATUS_RANK).map((s) => (
-          <option key={s} value={s} />
-        ))}
-      </datalist>
       <datalist id="rule-plugins">
         <option value="*">any plugin</option>
         {Object.keys(slots).map((p) => (
@@ -140,9 +135,6 @@ function ConditionRow({ condition: c, first, slots, facets, listId, onChange, on
 
   let value = null;
   if (hasValue(c.op)) {
-    const text = (list?: string) => (
-      <input aria-label="Value" list={list} value={String(c.value ?? "")} onChange={(e) => setValue(e.target.value)} />
-    );
     if (key === "urgent" || key === "unread") {
       value = (
         <select aria-label="Value" value={String(c.value)} onChange={(e) => setValue(e.target.value === "true")}>
@@ -175,15 +167,18 @@ function ConditionRow({ condition: c, first, slots, facets, listId, onChange, on
           ))}
         </select>
       );
-    } else if (key === "tone") {
+    } else if (key === "tone" || key === "status") {
+      // A stored status outside the known list stays selectable.
+      const options: readonly string[] = key === "tone" ? TONES : Object.keys(STATUS_RANK);
       value = (
         <select aria-label="Value" value={String(c.value)} onChange={(e) => setValue(e.target.value)}>
-          {TONES.map((t) => (
-            <option key={t}>{t}</option>
+          {!options.includes(String(c.value)) && <option>{String(c.value)}</option>}
+          {options.map((o) => (
+            <option key={o}>{o}</option>
           ))}
         </select>
       );
-    } else value = text(key === "status" ? "rule-statuses" : undefined);
+    } else value = <input aria-label="Value" value={String(c.value ?? "")} onChange={(e) => setValue(e.target.value)} />;
   }
 
   return (

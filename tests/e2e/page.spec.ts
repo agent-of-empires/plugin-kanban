@@ -354,7 +354,7 @@ test("editing a Signal column's Rules moves Cards and saves through config.set",
   edit = b.getByRole("dialog", { name: "Edit column" });
   await edit.getByRole("button", { name: "+ Rule" }).click();
   const added = edit.getByRole("group", { name: "Rule 3" });
-  await added.getByLabel("Value").fill("Idle");
+  await added.getByLabel("Value").selectOption("Idle");
   await edit.getByRole("button", { name: "Save" }).click();
   await expect(column(page, "error").getByTestId("card-fresh")).toBeVisible();
   expect((await sentRules(page, 2, "error")).at(-1)).toEqual([{ field: "status", op: "is", value: "Idle" }]);
@@ -376,7 +376,7 @@ test("a plugin condition picks plugin and slot, and Save waits for a value", asy
 
   await add.getByRole("button", { name: "+ Rule" }).click();
   const rule = add.getByRole("group", { name: "Rule 1" });
-  await rule.getByLabel("Value").fill("Stopped");
+  await rule.getByLabel("Value").selectOption("Stopped");
   await rule.getByRole("button", { name: "+ and" }).click();
   const second = rule.locator(".condition").nth(1);
   await second.getByLabel("Field").selectOption("text");
