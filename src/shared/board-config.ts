@@ -80,12 +80,18 @@ export function newColumnId(taken: readonly string[]): string {
   return id;
 }
 
-export function addColumn(config: Config, title: string, kind: Column["kind"], on_enter: Column["on_enter"] = "none"): Config {
+export function addColumn(
+  config: Config,
+  title: string,
+  kind: Column["kind"],
+  on_enter: Column["on_enter"] = "none",
+  rules: Condition[][] = [],
+): Config {
   const id = newColumnId(config.columns.map((c) => c.id));
-  return { ...config, columns: [...config.columns, { id, title, kind, rules: [], on_enter }] };
+  return { ...config, columns: [...config.columns, { id, title, kind, rules, on_enter }] };
 }
 
-export const editColumn = (config: Config, id: string, changes: Pick<Column, "title" | "on_enter">): Config => ({
+export const editColumn = (config: Config, id: string, changes: Partial<Pick<Column, "title" | "on_enter" | "rules">>): Config => ({
   ...config,
   columns: config.columns.map((c) => (c.id === id ? { ...c, ...changes } : c)),
 });
@@ -114,7 +120,7 @@ export function moveColumn(config: Config, id: string, to: number): Config {
 export type ParseResult ={ ok: true; config: Config } | { ok: false; error: string };
 
 const SESSION_FIELDS: readonly unknown[] = ["status", "urgent", "unread", "pending_approvals", "last_error"];
-const OPS: readonly unknown[] = ["is", "is not", "is set", "is empty"];
+export const OPS: readonly Op[] = ["is", "is not", "is set", "is empty"];
 const ON_ENTER: readonly unknown[] = ["none", "archive", "trash"];
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -139,7 +145,7 @@ function checkCondition(c: unknown, where: string) {
   if (!isRecord(c)) throw new Error(`${where}: not an object`);
   onlyKeys(c, ["field", "op", "value"], where);
   checkField(c.field, where);
-  if (!OPS.includes(c.op)) throw new Error(`${where}: unknown op`);
+  if (!(OPS as readonly unknown[]).includes(c.op)) throw new Error(`${where}: unknown op`);
   const needsValue = c.op === "is" || c.op === "is not";
   const hasValue = ["string", "number", "boolean"].includes(typeof c.value);
   if (needsValue !== hasValue) throw new Error(`${where}: "${String(c.op)}" ${needsValue ? "needs" : "takes no"} value`);

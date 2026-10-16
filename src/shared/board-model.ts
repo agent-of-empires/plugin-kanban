@@ -69,7 +69,7 @@ export interface Snapshot {
   config: Config;
 }
 
-const TONES: readonly unknown[] = ["neutral", "info", "success", "warn", "danger"];
+export const TONES: readonly Tone[] = ["neutral", "info", "success", "warn", "danger"];
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -92,14 +92,26 @@ export function findSnapshot(entries: UiEntry[], pluginId: string, pageId: strin
 // Dismissed matches core's Instance::is_dismissed.
 const isDismissed = (s: BridgeSession) => s.archived || s.snoozed || s.trashed;
 
-// 0 and false count as empty, so `pending_approvals is set` skips a zero count
-// and `urgent is set` a false flag.
+// 0 and false count as empty for "is set" and "is empty", so `pending_approvals
+// is set` skips a zero count and `urgent is set` a false flag.
 const isEmpty = (v: unknown) => v === undefined || v === null || v === "" || v === 0 || v === false;
 
 const matches = (want: string, got: string) => want === "*" || want === got;
 
 const rowColumns = (entries: UiEntry[], session: BridgeSession) =>
   entries.filter((e) => e.session_id === session.id && e.slot === "row-column");
+
+// Slot ids of the row columns on screen, by plugin id: what a plugin
+// condition can pick from.
+export function rowColumnSlots(entries: UiEntry[]): Record<string, string[]> {
+  const slots: Record<string, string[]> = {};
+  for (const e of entries) {
+    if (e.slot !== "row-column") continue;
+    const ids = (slots[e.plugin_id] ??= []);
+    if (!ids.includes(e.id)) ids.push(e.id);
+  }
+  return slots;
+}
 
 function candidates(field: Condition["field"], session: BridgeSession, entries: UiEntry[]): unknown[] {
   if (typeof field === "string") return [session[field]];
@@ -110,14 +122,17 @@ function candidates(field: Condition["field"], session: BridgeSession, entries: 
 }
 
 // Several plugin entries can match one condition: "is" needs any of them to
-// equal the value, "is not" needs a value and none equal to it.
+// equal the value, "is not" needs a value and none equal to it. "is" and "is
+// not" compare the real value, so `urgent is false` matches a false flag that
+// "is empty" also matches.
 function holds(c: Condition, session: BridgeSession, entries: UiEntry[]): boolean {
-  const set = candidates(c.field, session, entries).filter((v) => !isEmpty(v));
+  const values = candidates(c.field, session, entries).filter((v) => v !== undefined && v !== null);
+  const set = values.filter((v) => !isEmpty(v));
   switch (c.op) {
     case "is":
-      return set.some((v) => v === c.value);
+      return values.some((v) => v === c.value);
     case "is not":
-      return set.length > 0 && set.every((v) => v !== c.value);
+      return values.length > 0 && values.every((v) => v !== c.value);
     case "is set":
       return set.length > 0;
     case "is empty":
@@ -129,7 +144,7 @@ const columnMatches = (col: Column, session: BridgeSession, entries: UiEntry[]) 
   col.rules.some((rule) => rule.every((c) => holds(c, session, entries)));
 
 // Mirrors the dashboard sidebar's attention order (web/src/lib/sidebarSort.ts).
-const STATUS_RANK: Record<string, number> = {
+export const STATUS_RANK: Record<string, number> = {
   Waiting: 0,
   Error: 1,
   Idle: 2,
@@ -171,7 +186,7 @@ function badges(session: BridgeSession, entries: UiEntry[]): Badge[] {
       text: typeof b.text === "string" ? b.text : undefined,
       icon: typeof b.icon === "string" ? b.icon : undefined,
       tooltip: typeof b.tooltip === "string" ? b.tooltip : undefined,
-      tone: (TONES.includes(b.tone) ? b.tone : "neutral") as Tone,
+      tone: ((TONES as readonly unknown[]).includes(b.tone) ? b.tone : "neutral") as Tone,
     }))
     .filter((b) => b.text || b.icon);
 }

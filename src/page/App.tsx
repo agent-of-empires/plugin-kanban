@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Column, type Config, addColumn, deleteColumn, editColumn, enterAction, moveColumn } from "../shared/board-config";
-import { type BridgeSession, type UiEntry, buildBoard, findSnapshot } from "../shared/board-model";
+import { type BridgeSession, type UiEntry, buildBoard, findSnapshot, rowColumnSlots } from "../shared/board-model";
 import { Board, type Editor } from "./Board";
 import type { Bridge, BridgeContext } from "./bridge";
 import { ColumnDialog } from "./ColumnDialog";
@@ -135,7 +135,7 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
     return buildBoard(data.sessions, data.entries, { config, stages });
   }, [data, snapshot, config, moves]);
 
-  if (!columns || !config || !snapshot) {
+  if (!columns || !config || !snapshot || !data) {
     return (
       <p className="notice" data-testid="board-status">
         {failed ? "Couldn't load sessions from the dashboard." : "Loading the Board..."}
@@ -214,11 +214,16 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
         <ColumnDialog
           column={editing}
           canDelete={!!editing && !!deleteColumn(config, editing.id)}
+          slots={rowColumnSlots(data.entries)}
           onClose={() => setDialog(null)}
-          onSave={(title, kind, onEnter) => {
-            if (!editing) save(addColumn(config, title, kind, onEnter));
-            else if (title !== editing.title || onEnter !== editing.on_enter)
-              save(editColumn(config, editing.id, { title, on_enter: onEnter }));
+          onSave={(title, kind, onEnter, rules) => {
+            if (!editing) save(addColumn(config, title, kind, onEnter, rules));
+            else if (
+              title !== editing.title ||
+              onEnter !== editing.on_enter ||
+              JSON.stringify(rules) !== JSON.stringify(editing.rules)
+            )
+              save(editColumn(config, editing.id, { title, on_enter: onEnter, rules }));
             setDialog(null);
           }}
           onDelete={() => {

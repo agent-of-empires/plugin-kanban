@@ -256,6 +256,88 @@ test("a rejected save rolls the edit back and says so", async ({ page }) => {
   await expect(titles(page)).toHaveText(DEFAULT_TITLES);
 });
 
+type Rules = unknown[][];
+// Edits render before the bridge delivers them, so wait for the nth action.
+async function sentRules(page: Page, n: number, id: string) {
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(n);
+  const columns = await harness(page, (h) => h.actions.at(-1)!.params.config.columns);
+  return (columns as unknown as { id: string; rules: Rules }[]).find((c) => c.id === id)!.rules;
+}
+
+test("editing a Signal column's Rules moves Cards and saves through config.set", async ({ page }) => {
+  const b = board(page);
+  await expect(column(page, "action-needed").getByTestId("card-waiting")).toBeVisible();
+
+  // The default Rules show as ordinary, editable rows.
+  await b.getByRole("button", { name: "Edit column Action needed", exact: true }).click();
+  let edit = b.getByRole("dialog", { name: "Edit column" });
+  const rules = edit.getByRole("group", { name: /^Rule / });
+  await expect(rules).toHaveCount(5);
+  const first = rules.first();
+  await expect(first.getByLabel("Field")).toHaveValue("status");
+  await expect(first.getByLabel("Operator")).toHaveValue("is");
+  await expect(first.getByLabel("Value")).toHaveValue("Waiting");
+  await expect(rules.nth(3).getByLabel("Plugin")).toHaveValue("*");
+  await expect(rules.nth(3).getByLabel("Value")).toHaveValue("danger");
+
+  // Removing a Rule's only condition removes the Rule.
+  await first.getByRole("button", { name: "Remove condition" }).click();
+  await expect(rules).toHaveCount(4);
+  await edit.getByRole("button", { name: "Save" }).click();
+  await expect(column(page, "needs-testing").getByTestId("card-waiting")).toBeVisible();
+  expect(await sentRules(page, 1, "action-needed")).toHaveLength(4);
+
+  // A new Rule on Error pulls in the Idle Card.
+  await b.getByRole("button", { name: "Edit column Error", exact: true }).click();
+  edit = b.getByRole("dialog", { name: "Edit column" });
+  await edit.getByRole("button", { name: "+ Rule" }).click();
+  const added = edit.getByRole("group", { name: "Rule 3" });
+  await added.getByLabel("Value").fill("Idle");
+  await edit.getByRole("button", { name: "Save" }).click();
+  await expect(column(page, "error").getByTestId("card-fresh")).toBeVisible();
+  expect((await sentRules(page, 2, "error")).at(-1)).toEqual([{ field: "status", op: "is", value: "Idle" }]);
+
+  // Another device reads the same snapshot.
+  await harness(page, (h) => h.startPage(h.fixtures()));
+  await expect(column(page, "error").getByTestId("card-fresh")).toBeVisible();
+  await expect(column(page, "needs-testing").getByTestId("card-waiting")).toBeVisible();
+});
+
+test("a plugin condition picks plugin and slot, and Save waits for a value", async ({ page }) => {
+  const b = board(page);
+  await b.getByRole("button", { name: "+ Add column" }).click();
+  const add = b.getByRole("dialog", { name: "Add column" });
+  await add.getByLabel("Name").fill("Stopped");
+  await expect(add.getByRole("button", { name: "+ Rule" })).toHaveCount(0);
+  await add.getByLabel(/^Signal/).check();
+  await expect(add).toContainText("No Rules: this Column holds no Cards.");
+
+  await add.getByRole("button", { name: "+ Rule" }).click();
+  const rule = add.getByRole("group", { name: "Rule 1" });
+  await rule.getByLabel("Value").fill("Stopped");
+  await rule.getByRole("button", { name: "+ and" }).click();
+  const second = rule.locator(".condition").nth(1);
+  await second.getByLabel("Field").selectOption("text");
+  await expect(second.getByLabel("Plugin")).toHaveValue("*");
+  await expect(second.getByLabel("Value")).toHaveValue("");
+  await expect(add.getByRole("button", { name: "Save" })).toBeDisabled();
+  await second.getByLabel("Plugin").fill("gh");
+  await second.getByLabel("Slot").fill("pr");
+  await second.getByLabel("Operator").selectOption("is empty");
+  await expect(second.getByLabel("Value")).toHaveCount(0);
+  await add.getByRole("button", { name: "Save" }).click();
+
+  // "shipped" is Stopped and has no gh/pr text.
+  await expect(b.getByRole("region", { name: "Stopped" }).getByTestId("card-shipped")).toBeVisible();
+  const id = await b.getByRole("region", { name: "Stopped" }).getAttribute("data-testid");
+  expect(await sentRules(page, 1, id!.replace(/^column-/, ""))).toEqual([
+    [
+      { field: "status", op: "is", value: "Stopped" },
+      { field: { plugin_id: "gh", slot_id: "pr", attr: "text" }, op: "is empty" },
+    ],
+  ]);
+});
+
 for (const flag of ["readOnly", "cityhall"] as const) {
   test(`${flag} context hides Column editing`, async ({ page }) => {
     await harness(
