@@ -244,7 +244,8 @@ export function App({
     ? (card, x, y) => {
         const items = editor
           ? config.columns
-              .filter((c) => c.kind === "stage" && c.id !== card.stageId)
+              // The Card's own archive or trash Stage stays, to retry a refused action.
+              .filter((c) => c.kind === "stage" && (c.id !== card.stageId || enterAction(c)))
               .map((c) => ({ id: MOVE + c.id, label: `Move to ${c.title}` }))
           : [];
         bridge.request("session.contextMenu", { id: card.session.id, x, y, items }, { wait: true }).then(

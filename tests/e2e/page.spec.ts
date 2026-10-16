@@ -590,6 +590,27 @@ test.describe("moving Cards", () => {
     await expect(board(page).getByTestId("card-fresh")).toHaveCount(0);
   });
 
+  test("the dashboard's session menu keeps an archive Column's own entry to retry a refused archive", async ({ page }) => {
+    await enterBoard(page, "archive", { rejectEnter: true, hostMenu: true });
+    const menuItems = async () => {
+      const before = await harness(page, (h) => h.menus.length);
+      await board(page).getByTestId("card-fresh").click({ button: "right" });
+      await expect.poll(() => harness(page, (h) => h.menus.length)).toBe(before + 1);
+      return (await harness(page, (h) => h.menus.at(-1)!)).items.map((i: { id: string }) => i.id);
+    };
+    expect(await menuItems()).toContain("move:done");
+    await harness(page, (h) => h.pickMenu("move:done"));
+    await harness(page, (h) => h.publishStage("fresh", "done"));
+    await expect(board(page).getByRole("alert")).toHaveText("Couldn't archive the Session.");
+
+    await harness(page, (h) => Object.assign(h.fixtures(), { rejectEnter: false }));
+    expect(await menuItems()).toContain("move:done");
+    await harness(page, (h) => h.pickMenu("move:done"));
+    await expect
+      .poll(() => actions(page))
+      .toEqual([stageSet("fresh", "done"), { method: "session.archive", params: { id: "fresh" } }]);
+  });
+
   test("with the dashboard's session menu, a Card opens it with Move to items", async ({ page }) => {
     await restart(page, { hostMenu: true });
     const card = column(page, "in-progress").getByTestId("card-fresh");
