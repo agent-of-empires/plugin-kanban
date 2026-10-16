@@ -3,6 +3,8 @@ name = "Board"
 version = "0.0.1"
 # Page slot lands in core with api_version 16 (agent-of-empires/agent-of-empires#4459).
 api_version = 16
+# Host range tested; 1.20.0 is the first core release with the page slot.
+aoe_version = ">=1.20.0, <2.0.0"
 description = "Kanban Board of your Sessions, with Stage and Signal columns."
 capabilities = ["runtime.worker", "session.read", "session.write"]
 
