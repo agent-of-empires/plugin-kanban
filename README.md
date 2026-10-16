@@ -84,6 +84,11 @@ right-click menu. A Card dragged out of a Signal column records the new Stage
 but stays until the Signal clears, showing the Stage as its chip. Read-only
 and CityHall dashboards can't move Cards.
 
+On a phone the Board shows one Column per screen: swipe sideways, or tap a dot
+above the Board, to change Column. To drag a Card to another Column, long press
+it and hold it at the screen edge until that Column scrolls in. **Move to** on
+the `⋯` button is the easier way; long press does not open it on touch.
+
 ## Where data lives
 
 The worker owns all Board state, so every device sees the same Board.
