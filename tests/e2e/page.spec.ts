@@ -138,7 +138,13 @@ type Harness = {
   fixtures: () => typeof fixtures;
   publishStage: (sessionId: string, columnId: string) => void;
   opened: string[];
-  actions: { method: string; params: { config: { columns: { id: string; title: string; kind: string; on_enter: string }[] } } }[];
+  actions: {
+    method: string;
+    params: {
+      config: { columns: { id: string; title: string; kind: string; on_enter: string; send?: { label: string; message: string; stage?: string } }[] };
+      sessionIds: string[];
+    };
+  }[];
 };
 // Runs fn in the harness window with a JSON argument; fn sees no closure.
 const harness = <T, A = undefined>(page: Page, fn: (h: Harness, arg: A) => T, arg?: A): Promise<T> =>
@@ -325,20 +331,20 @@ test("editing a Signal column's Rules moves Cards and saves through config.set",
   await b.getByRole("button", { name: "Edit column Action needed", exact: true }).click();
   let edit = b.getByRole("dialog", { name: "Edit column" });
   const rules = edit.getByRole("group", { name: /^Rule / });
-  await expect(rules).toHaveCount(5);
+  await expect(rules).toHaveCount(6);
   const first = rules.first();
   await expect(first.getByLabel("Field")).toHaveValue("status");
   await expect(first.getByLabel("Operator")).toHaveValue("is");
   await expect(first.getByLabel("Value")).toHaveValue("Waiting");
-  await expect(rules.nth(3).getByLabel("Plugin")).toHaveValue("*");
-  await expect(rules.nth(3).getByLabel("Value")).toHaveValue("danger");
+  await expect(rules.nth(4).getByLabel("Plugin")).toHaveValue("*");
+  await expect(rules.nth(4).getByLabel("Value")).toHaveValue("danger");
 
   // Removing a Rule's only condition removes the Rule.
   await first.getByRole("button", { name: "Remove condition" }).click();
-  await expect(rules).toHaveCount(4);
+  await expect(rules).toHaveCount(5);
   await edit.getByRole("button", { name: "Save" }).click();
   await expect(column(page, "needs-testing").getByTestId("card-waiting")).toBeVisible();
-  expect(await sentRules(page, 1, "action-needed")).toHaveLength(4);
+  expect(await sentRules(page, 1, "action-needed")).toHaveLength(5);
 
   // A new Rule on Error pulls in the Idle Card.
   await b.getByRole("button", { name: "Edit column Error", exact: true }).click();
@@ -653,4 +659,38 @@ test.describe("phone", () => {
     ]);
     expect(await harness(page, (h) => h.opened)).toEqual([]);
   });
+});
+
+test("a Column's one-click message sends from a Card and, after a confirm, from the Column", async ({ page }) => {
+  const b = board(page);
+  await b.getByRole("button", { name: "Edit column Action needed", exact: true }).click();
+  const edit = b.getByRole("dialog", { name: "Edit column" });
+  // A label without a message has nothing to send.
+  await edit.getByLabel("Button label").fill("Fix");
+  await expect(edit.getByRole("button", { name: "Save" })).toBeDisabled();
+  await edit.getByLabel("Message").fill("resolve the comments");
+  await edit.getByLabel("Then move the Card to").selectOption({ label: "Done" });
+  await edit.getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(1);
+  const saved = await harness(page, (h) => h.actions[0].params.config.columns.find((c) => c.id === "action-needed"));
+  expect(saved?.send).toEqual({ label: "Fix", message: "resolve the comments", stage: "done" });
+
+  const action = column(page, "action-needed");
+  await action.getByTestId("card-waiting").getByRole("button", { name: "Fix" }).click();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(2);
+  expect(await harness(page, (h) => h.actions[1])).toEqual({
+    method: "message.send",
+    params: { columnId: "action-needed", sessionIds: ["waiting"] },
+  });
+
+  // Many Sessions: the first click asks, the second sends.
+  await action.getByRole("button", { name: "Fix (all)" }).click();
+  expect(await harness(page, (h) => h.actions.length)).toBe(2);
+  await action.getByRole("button", { name: "Send to 2?" }).click();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(3);
+  const sent = await harness(page, (h) => h.actions[2].params.sessionIds);
+  expect([...sent].sort()).toEqual(["flagged", "waiting"]);
+
+  // Columns without a message show no button.
+  await expect(column(page, "error").getByRole("button", { name: /Fix/ })).toHaveCount(0);
 });

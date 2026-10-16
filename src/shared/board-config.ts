@@ -27,6 +27,17 @@ export interface Condition {
   value?: string | number | boolean;
 }
 
+// A one-click message for the Cards of a Column. `stage` is a Stage column id
+// the Session moves to once the message is delivered.
+export interface Send {
+  label: string;
+  message: string;
+  stage?: string;
+}
+
+// Well under the host's 64 KiB message cap and the snapshot cap that carries it.
+export const SEND_MESSAGE_MAX = 4_000;
+
 export interface Column {
   id: string;
   title: string;
@@ -35,6 +46,7 @@ export interface Column {
   // on Stage columns.
   rules: Condition[][];
   on_enter: "none" | "archive" | "trash";
+  send?: Send;
 }
 
 export interface Config {
@@ -94,12 +106,18 @@ export function addColumn(
   kind: Column["kind"],
   on_enter: Column["on_enter"] = "none",
   rules: Condition[][] = [],
+  send?: Send,
 ): Config {
   const id = newColumnId(config.columns.map((c) => c.id));
-  return { ...config, columns: [...config.columns, { id, title, kind, rules, on_enter }] };
+  return { ...config, columns: [...config.columns, { id, title, kind, rules, on_enter, ...(send && { send }) }] };
 }
 
-export const editColumn = (config: Config, id: string, changes: Partial<Pick<Column, "title" | "on_enter" | "rules">>): Config => ({
+// A `send` of undefined removes the Column's message.
+export const editColumn = (
+  config: Config,
+  id: string,
+  changes: Partial<Pick<Column, "title" | "on_enter" | "rules" | "send">>,
+): Config => ({
   ...config,
   columns: config.columns.map((c) => (c.id === id ? { ...c, ...changes } : c)),
 });
@@ -166,13 +184,22 @@ function checkCondition(c: unknown, where: string) {
   if (typeof c.value === "number" && !Number.isFinite(c.value)) throw new Error(`${where}: value must be a finite number`);
 }
 
+function checkSend(send: unknown, where: string) {
+  if (!isRecord(send)) throw new Error(`${where}: not an object`);
+  onlyKeys(send, ["label", "message", "stage"], where);
+  if (!isName(send.label) || !isName(send.message)) throw new Error(`${where}: label and message required`);
+  if (send.message.length > SEND_MESSAGE_MAX) throw new Error(`${where}: message over ${SEND_MESSAGE_MAX} characters`);
+  if (send.stage !== undefined && !isName(send.stage)) throw new Error(`${where}: stage must be a column id`);
+}
+
 function checkColumn(col: unknown, where: string) {
   if (!isRecord(col)) throw new Error(`${where}: not an object`);
-  onlyKeys(col, ["id", "title", "kind", "rules", "on_enter"], where);
+  onlyKeys(col, ["id", "title", "kind", "rules", "on_enter", "send"], where);
   if (!isName(col.id)) throw new Error(`${where}: id required`);
   if (!isName(col.title)) throw new Error(`${where}: title required`);
   if (col.kind !== "stage" && col.kind !== "signal") throw new Error(`${where}: kind must be stage or signal`);
   if (!ON_ENTER.includes(col.on_enter)) throw new Error(`${where}: on_enter must be none, archive or trash`);
+  if (col.send !== undefined) checkSend(col.send, `${where} send`);
   if (!Array.isArray(col.rules)) throw new Error(`${where}: rules must be an array`);
   if (col.kind === "stage" && col.rules.length > 0) throw new Error(`${where}: Stage columns take no rules`);
   col.rules.forEach((rule, r) => {

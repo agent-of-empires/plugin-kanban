@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type Column, type Config, addColumn, deleteColumn, editColumn, enterAction, moveColumn } from "../shared/board-config";
+import { type Column, type Config, type Send, addColumn, deleteColumn, editColumn, enterAction, moveColumn } from "../shared/board-config";
 import { type BridgeSession, type UiEntry, buildBoard, facets, findSnapshot, rowColumnSlots } from "../shared/board-model";
 import { Board, type Editor } from "./Board";
 import type { Bridge, BridgeContext } from "./bridge";
@@ -198,6 +198,17 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
       },
     );
   };
+  const sendMessage = (column: Column, sessionIds: string[]) => {
+    setToast(null);
+    // The reply only acknowledges delivery to the worker, which logs a failed send.
+    bridge.request("action", { method: "message.send", params: { columnId: column.id, sessionIds } }).then(
+      () => setToast(`Sending "${column.send?.label}" to ${sessionIds.length} Session${sessionIds.length === 1 ? "" : "s"}.`),
+      (e: Error) => {
+        console.error(`[kanban] message.send failed: ${e.message}`);
+        setToast("Couldn't send the message.");
+      },
+    );
+  };
   const editor: Editor | undefined =
     context && !context.readOnly && !context.cityhall
       ? {
@@ -205,6 +216,7 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
           onEdit: setDialog,
           onMove: (id, to) => save(moveColumn(config, id, to)),
           onStage: setStage,
+          onSend: sendMessage,
           onImport: () => setConfigDialog("import"),
         }
       : undefined;
@@ -219,15 +231,17 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
           canDelete={!!editing && !!deleteColumn(config, editing.id)}
           slots={rowColumnSlots(data.entries)}
           facets={facets(data.entries)}
+          stages={config.columns.filter((c) => c.kind === "stage")}
           onClose={() => setDialog(null)}
-          onSave={(title, kind, onEnter, rules) => {
-            if (!editing) save(addColumn(config, title, kind, onEnter, rules));
+          onSave={(title, kind, onEnter, rules, send?: Send) => {
+            if (!editing) save(addColumn(config, title, kind, onEnter, rules, send));
             else if (
               title !== editing.title ||
               onEnter !== editing.on_enter ||
-              JSON.stringify(rules) !== JSON.stringify(editing.rules)
+              JSON.stringify(rules) !== JSON.stringify(editing.rules) ||
+              JSON.stringify(send) !== JSON.stringify(editing.send)
             )
-              save(editColumn(config, editing.id, { title, on_enter: onEnter, rules }));
+              save(editColumn(config, editing.id, { title, on_enter: onEnter, rules, send }));
             setDialog(null);
           }}
           onDelete={() => {

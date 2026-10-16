@@ -61,6 +61,8 @@ function startWorker(host: HostState) {
       case "plugin.storage.set":
         storage[p.key as string] = p.value;
         return reply(req.id, { result: {} });
+      case "sessions.message.send":
+        return reply(req.id, { result: { disposition: "sent", revived: false } });
       case "ui.state.set":
         return reply(req.id, { result: { ok: true } });
     }
@@ -275,4 +277,47 @@ test("stdout carries only JSON-RPC requests, and stdin EOF exits cleanly", async
     expect(JSON.parse(line)).toMatchObject({ jsonrpc: "2.0", id: expect.any(Number), method: expect.any(String) });
   }
   expect(w.stderr()).toContain("worker started (plugin agent-of-empires.kanban)");
+});
+
+const sendConfig: Config = {
+  version: 1,
+  columns: [
+    { id: "gh", title: "Comments", kind: "signal", rules: [], on_enter: "none", send: { label: "Fix", message: "resolve the comments", stage: "wip" } },
+    { id: "wip", title: "WIP", kind: "stage", rules: [], on_enter: "none" },
+    { id: "plain", title: "Plain", kind: "stage", rules: [], on_enter: "none" },
+  ],
+};
+
+test("message.send sends the Column's stored message and moves each Session", async () => {
+  const w = startWorker({ sessions: ["a1", "b2"], storage: { config: sendConfig } });
+  await vi.waitFor(() => expect(lastSnapshot(w)).toBeDefined());
+  w.notify("message.send", { columnId: "gh", sessionIds: ["a1", "b2"], message: "page text is ignored" });
+  await vi.waitFor(() => expect(w.meta).toEqual({ a1: "wip", b2: "wip" }));
+  expect(w.calls("sessions.message.send")).toEqual([
+    { session_id: "a1", message: "resolve the comments" },
+    { session_id: "b2", message: "resolve the comments" },
+  ]);
+});
+
+test("message.send skips the move for a Session that failed and carries on", async () => {
+  const w = startWorker({
+    sessions: ["a1", "b2"],
+    storage: { config: sendConfig },
+    intercept: (req) =>
+      req.method === "sessions.message.send" && req.params.session_id === "a1"
+        ? { error: { code: -32000, message: "session_archived" } }
+        : undefined,
+  });
+  await vi.waitFor(() => expect(lastSnapshot(w)).toBeDefined());
+  w.notify("message.send", { columnId: "gh", sessionIds: ["a1", "b2"] });
+  await vi.waitFor(() => expect(w.meta).toEqual({ b2: "wip" }));
+  expect(w.stderr()).toContain("messaging a1 failed");
+});
+
+test("message.send ignores a Column without a message", async () => {
+  const w = startWorker({ sessions: ["a1"], storage: { config: sendConfig } });
+  await vi.waitFor(() => expect(lastSnapshot(w)).toBeDefined());
+  w.notify("message.send", { columnId: "plain", sessionIds: ["a1"] });
+  await vi.waitFor(() => expect(w.stderr()).toContain("ignored message.send"));
+  expect(w.calls("sessions.message.send")).toEqual([]);
 });

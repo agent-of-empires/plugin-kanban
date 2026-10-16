@@ -159,3 +159,19 @@ test.each([
   const result = parseConfigJson(text);
   expect(result.ok ? "" : result.error).toContain(error);
 });
+
+const withSend = (send: unknown) => ({
+  version: 1,
+  columns: [{ id: "s", title: "S", kind: "stage", rules: [], on_enter: "none", send }],
+});
+
+test("a Column send takes a label and message with an optional stage", () => {
+  expect(parseConfig(withSend({ label: "Fix", message: "do it" })).ok).toBe(true);
+  expect(parseConfig(withSend({ label: "Fix", message: "do it", stage: "s" })).ok).toBe(true);
+});
+
+test("a Column send rejects an empty message, an unknown key and an over-long message", () => {
+  expect(parseConfig(withSend({ label: "Fix", message: "" })).ok).toBe(false);
+  expect(parseConfig(withSend({ label: "Fix", message: "x", extra: 1 })).ok).toBe(false);
+  expect(parseConfig(withSend({ label: "Fix", message: "x".repeat(4_001) })).ok).toBe(false);
+});

@@ -151,9 +151,34 @@ async function setConfig(params: unknown) {
   publish(true);
 }
 
+// The message text comes from the stored Column, never from the page, so the
+// page cannot make this worker send arbitrary text. Sessions are messaged one
+// at a time; a failure is logged and the rest still go. Delivery failures reach
+// the log only. ponytail: surface per-Session results in the snapshot if the
+// log proves too hidden.
+async function sendMessage(params: unknown) {
+  const { columnId, sessionIds } = isRecord(params) ? params : {};
+  const send = config.columns.find((c) => c.id === columnId)?.send;
+  if (!send || !Array.isArray(sessionIds) || !sessionIds.every((id) => typeof id === "string" && id)) {
+    log("ignored message.send: expected {columnId with a message, sessionIds}");
+    return;
+  }
+  const moveTo = config.columns.some((c) => c.id === send.stage && c.kind === "stage") ? send.stage : undefined;
+  for (const sessionId of sessionIds as string[]) {
+    try {
+      await call("sessions.message.send", { session_id: sessionId, message: send.message });
+    } catch (e) {
+      log(`messaging ${sessionId} failed: ${errorText(e)}`);
+      continue;
+    }
+    if (moveTo && stages.get(sessionId) !== moveTo) await setStage({ sessionId, columnId: moveTo }).catch((e) => log(`moving ${sessionId} failed: ${errorText(e)}`));
+  }
+}
+
 const handlers = new Map<string, (params: unknown) => Promise<void>>([
   ["stage.set", setStage],
   ["config.set", setConfig],
+  ["message.send", sendMessage],
   ["session.status.changed", resync],
 ]);
 

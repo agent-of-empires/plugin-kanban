@@ -4,7 +4,7 @@ version = "0.0.1"
 # Page slot lands in core with api_version 16 (agent-of-empires/agent-of-empires#4459).
 api_version = 16
 description = "Kanban Board of your Sessions, with Stage and Signal columns."
-capabilities = ["runtime.worker", "session.read", "session.write"]
+capabilities = ["runtime.worker", "session.read", "session.write", "session.message"]
 
 [[ui]]
 slot = "page"
