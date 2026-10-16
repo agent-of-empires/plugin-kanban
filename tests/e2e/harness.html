@@ -16,6 +16,8 @@
       // would publish it; window.fixtures() returns that state for a reload.
       // stage.set lands only when the test calls window.publishStage, so a
       // test sees the optimistic move before the worker confirms it.
+      // session.archive and session.trash join window.actions in call order
+      // and dismiss the fixture Session; fixtures.rejectEnter refuses them.
       const NONCE = "test-nonce";
       let frame = document.getElementById("page");
       let port = null;
@@ -43,6 +45,13 @@
             entry.payload = { ...entry.payload, config: params.params.config };
           }
           return { result: { baselineRevision: window.actions.length } };
+        }
+        if (method === "session.archive" || method === "session.trash") {
+          if (fixtures.rejectEnter) return { error: { code: "forbidden", message: "refused" } };
+          window.actions.push({ method, params });
+          const s = fixtures.sessions.find((s) => s.id === params.id);
+          s[method === "session.archive" ? "archived" : "trashed"] = true;
+          return { result: null };
         }
         return { error: { code: "unknown_method", message: `Unknown method ${method}.` } };
       }

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { type Locator, type Page, devices, expect, test } from "@playwright/test";
+import { DEFAULT_CONFIG, editColumn } from "../../src/shared/board-config";
 
 const ORIGIN = "http://harness.test";
 // The daemon's page policy (core src/server/api/plugins.rs `PLUGIN_PAGE_CSP`).
@@ -349,6 +350,75 @@ test.describe("moving Cards", () => {
     await expect(board(page).getByRole("alert")).toHaveText("Couldn't save the Board.");
     await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
     await expect(column(page, "done").getByTestId("card-fresh")).toHaveCount(0);
+  });
+
+  // Restarts with Done set to `on_enter`, plus fixture overrides.
+  const enterBoard = (page: Page, on_enter: "archive" | "trash", overrides: Record<string, unknown> = {}) =>
+    harness(
+      page,
+      (h, a) => {
+        const f = h.fixtures();
+        const entries = f.entries.map((e) => (e.slot === "page" ? { ...e, payload: { ...e.payload, config: a!.config } } : e));
+        h.startPage({ ...f, ...a!.overrides, entries });
+      },
+      { config: editColumn(DEFAULT_CONFIG, "done", { title: "Done", on_enter }), overrides },
+    );
+  const moveTo = async (page: Page, id: string, title: string) => {
+    await board(page).getByTestId(`card-${id}`).getByRole("button", { name: "Move to…" }).click();
+    await board(page).getByRole("menu").getByRole("menuitemradio").filter({ hasText: title }).click();
+  };
+
+  test("dropping onto an archive Column writes the Stage, then archives once it lands", async ({ page }) => {
+    await enterBoard(page, "archive");
+    await drag(page, column(page, "in-progress").getByTestId("card-fresh"), column(page, "done"));
+    await expect(column(page, "done").getByTestId("card-fresh")).toBeVisible();
+    await expect.poll(() => actions(page)).toEqual([stageSet("fresh", "done")]);
+
+    // Polls go by, but the Stage is not in the snapshot yet: no archive.
+    await page.waitForTimeout(2_500);
+    expect(await actions(page)).toEqual([stageSet("fresh", "done")]);
+
+    await harness(page, (h) => h.publishStage("fresh", "done"));
+    await expect
+      .poll(() => actions(page))
+      .toEqual([stageSet("fresh", "done"), { method: "session.archive", params: { id: "fresh" } }]);
+    await expect(board(page).getByTestId("card-fresh")).toHaveCount(0);
+    await expect(board(page).getByRole("dialog")).toHaveCount(0);
+  });
+
+  test("Move to a trash Column writes the Stage, then trashes", async ({ page }) => {
+    await enterBoard(page, "trash");
+    await moveTo(page, "fresh", "Done");
+    await expect.poll(() => actions(page)).toEqual([stageSet("fresh", "done")]);
+    await harness(page, (h) => h.publishStage("fresh", "done"));
+    await expect
+      .poll(() => actions(page))
+      .toEqual([stageSet("fresh", "done"), { method: "session.trash", params: { id: "fresh" } }]);
+    await expect(board(page).getByTestId("card-fresh")).toHaveCount(0);
+  });
+
+  test("a refused Stage write never archives", async ({ page }) => {
+    await enterBoard(page, "archive", { rejectActions: true });
+    await moveTo(page, "fresh", "Done");
+    await expect(board(page).getByRole("alert")).toHaveText("Couldn't save the Board.");
+    await page.waitForTimeout(2_500);
+    expect(await actions(page)).toEqual([]);
+    await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
+  });
+
+  test("a refused archive keeps the Stage, says so, and dropping again retries", async ({ page }) => {
+    await enterBoard(page, "archive", { rejectEnter: true });
+    await moveTo(page, "fresh", "Done");
+    await harness(page, (h) => h.publishStage("fresh", "done"));
+    await expect(board(page).getByRole("alert")).toHaveText("Couldn't archive the Session.");
+    await expect(column(page, "done").getByTestId("card-fresh")).toBeVisible();
+
+    await harness(page, (h) => Object.assign(h.fixtures(), { rejectEnter: false }));
+    await moveTo(page, "fresh", "Done");
+    await expect
+      .poll(() => actions(page))
+      .toEqual([stageSet("fresh", "done"), { method: "session.archive", params: { id: "fresh" } }]);
+    await expect(board(page).getByTestId("card-fresh")).toHaveCount(0);
   });
 
   for (const flag of ["readOnly", "cityhall"] as const) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type Column, type Config, addColumn, deleteColumn, editColumn, moveColumn } from "../shared/board-config";
+import { type Column, type Config, addColumn, deleteColumn, editColumn, enterAction, moveColumn } from "../shared/board-config";
 import { type BridgeSession, type UiEntry, buildBoard, findSnapshot } from "../shared/board-model";
 import { Board, type Editor } from "./Board";
 import type { Bridge, BridgeContext } from "./bridge";
@@ -23,12 +23,21 @@ interface Data {
 
 // A Stage write shown before the snapshot confirms it. `req` tells apart two
 // writes of the same Session; `ackSeq` is the last poll started when the
-// bridge acknowledged it, so only a later poll can confirm it.
+// bridge acknowledged it, so only a later poll can confirm it. `enter` is the
+// target Column's enter-action, fixed at drop time and run once confirmed.
 interface Move {
   columnId: string;
   req: number;
   ackSeq?: number;
+  enter?: EnterMethod;
 }
+
+type EnterMethod = NonNullable<ReturnType<typeof enterAction>>;
+const SAVE_FAILED = "Couldn't save the Board.";
+const ENTER_FAILED: Record<EnterMethod, string> = {
+  "session.archive": "Couldn't archive the Session.",
+  "session.trash": "Couldn't move the Session to the trash.",
+};
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -81,12 +90,20 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
   // An edit renders at once and holds until the snapshot carries the same config.
   const [pending, setPending] = useState<Config | null>(null);
   const pendingRef = useRef<Config | null>(null);
-  const [saveFailed, setSaveFailed] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Column | "new" | null>(null);
   const [moves, setMoves] = useState<Record<string, Move>>({});
   const nextReq = useRef(0);
   // The req of each Session's unsettled move, read by its timer and rejection.
   const liveReq = useRef<Record<string, number>>({});
+
+  // Runs only after the snapshot shows the Stage written, since an `action`
+  // reply only acknowledges delivery. Reversible, so it asks nothing.
+  const runEnter = (sessionId: string, method: EnterMethod) =>
+    bridge.request(method, { id: sessionId }).catch((e: Error) => {
+      console.error(`[kanban] ${method} failed: ${e.message}`);
+      setToast(ENTER_FAILED[method]);
+    });
 
   const snapshot = useMemo(() => data && context && findSnapshot(data.entries, context.pluginId, context.pageId), [data, context]);
   useEffect(() => {
@@ -95,14 +112,19 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
       setPending(null);
     }
   }, [snapshot, pending]);
-  // Drops the Stage writes this snapshot confirms.
+  // Drops the Stage writes this snapshot confirms and runs their enter-actions.
   useEffect(() => {
     if (!data || !snapshot) return;
     const confirmed = Object.entries(moves).filter(
       ([id, m]) => m.ackSeq !== undefined && data.seq > m.ackSeq && snapshot.stages[id] === m.columnId,
     );
     if (!confirmed.length) return;
-    for (const [id, m] of confirmed) if (liveReq.current[id] === m.req) delete liveReq.current[id];
+    // Clearing liveReq first makes a rerun of this effect skip the move.
+    for (const [id, m] of confirmed) {
+      if (liveReq.current[id] !== m.req) continue;
+      delete liveReq.current[id];
+      if (m.enter) runEnter(id, m.enter);
+    }
     setMoves((prev) => Object.fromEntries(Object.entries(prev).filter(([id, m]) => liveReq.current[id] === m.req)));
   }, [data, snapshot, moves]);
   const config = pending ?? snapshot?.config;
@@ -126,13 +148,13 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
   const save = (next: Config) => {
     pendingRef.current = next;
     setPending(next);
-    setSaveFailed(false);
+    setToast(null);
     // Only the latest edit may roll back, so an older timer never undoes a newer one.
     const fail = () => {
       if (pendingRef.current !== next) return;
       pendingRef.current = null;
       setPending(null);
-      setSaveFailed(true);
+      setToast(SAVE_FAILED);
     };
     bridge.request("action", { method: "config.set", params: { config: next } }).then(
       () => setTimeout(fail, CONFIRM_MS),
@@ -143,19 +165,24 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
     );
   };
   const setStage = (sessionId: string, columnId: string) => {
+    const enter = enterAction(config.columns.find((c) => c.id === columnId));
     // A Stage that is only the leftmost fallback is still written, to record it.
-    if ((moves[sessionId]?.columnId ?? snapshot.stages[sessionId]) === columnId) return;
+    if ((moves[sessionId]?.columnId ?? snapshot.stages[sessionId]) === columnId) {
+      // Dropping again onto a written archive or trash Column retries its action.
+      if (enter && !moves[sessionId]) runEnter(sessionId, enter);
+      return;
+    }
     const req = ++nextReq.current;
     liveReq.current[sessionId] = req;
-    setMoves((prev) => ({ ...prev, [sessionId]: { columnId, req } }));
-    setSaveFailed(false);
+    setMoves((prev) => ({ ...prev, [sessionId]: { columnId, req, enter } }));
+    setToast(null);
     // Only the Session's latest move may roll back, so an older one never
     // undoes a newer one.
     const fail = () => {
       if (liveReq.current[sessionId] !== req) return;
       delete liveReq.current[sessionId];
       setMoves((prev) => without(prev, [sessionId]));
-      setSaveFailed(true);
+      setToast(SAVE_FAILED);
     };
     setTimeout(fail, MOVE_MS);
     bridge.request("action", { method: "stage.set", params: { sessionId, columnId } }).then(
@@ -201,9 +228,9 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
           }}
         />
       )}
-      {saveFailed && (
+      {toast && (
         <p className="toast" role="alert">
-          Couldn't save the Board.
+          {toast}
         </p>
       )}
     </>
