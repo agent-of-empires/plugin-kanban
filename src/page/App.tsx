@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Column, type Config, type Send, addColumn, deleteColumn, editColumn, enterAction, moveColumn } from "../shared/board-config";
 import { type BridgeSession, type UiEntry, buildBoard, facets, findSnapshot, rowColumnSlots } from "../shared/board-model";
-import { Board, type Editor } from "./Board";
-import type { Bridge, BridgeContext } from "./bridge";
+import { Board, type Editor, type HostMenu } from "./Board";
+import { type Bridge, type BridgeContext, BridgeError } from "./bridge";
 import { ColumnDialog } from "./ColumnDialog";
 import { ConfigDialog } from "./ConfigDialog";
 
@@ -40,6 +40,9 @@ const ENTER_FAILED: Record<EnterMethod, string> = {
   "session.trash": "Couldn't move the Session to the trash.",
 };
 
+// Prefixes a Stage column id in the dashboard menu's page items.
+const MOVE = "move:";
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -60,8 +63,23 @@ function readData(sessions: unknown, uiState: unknown): Omit<Data, "seq"> {
   };
 }
 
-export function App({ bridge, context }: { bridge: Bridge; context: BridgeContext | null }) {
+export function App({
+  bridge,
+  context,
+  selected,
+}: {
+  bridge: Bridge;
+  context: BridgeContext | null;
+  selected: string | null;
+}) {
   const [data, setData] = useState<Data | null>(null);
+  // Whether the dashboard can open its own session menu. A probe with no params
+  // answers invalid_params where it can and unknown_method where it is older.
+  const [hostMenuOk, setHostMenuOk] = useState(false);
+  useEffect(() => {
+    if (!context) return;
+    bridge.request("session.contextMenu").catch((e: Error) => setHostMenuOk(e instanceof BridgeError && e.code === "invalid_params"));
+  }, [bridge, context]);
   const [failed, setFailed] = useState(false);
   const pollSeq = useRef(0);
 
@@ -221,10 +239,33 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
         }
       : undefined;
   const editing = dialog === "new" ? null : dialog;
+  // The dashboard's session menu, with this Board's Stages appended as Move to items.
+  const hostMenu: HostMenu | undefined = hostMenuOk
+    ? (card, x, y) => {
+        const items = editor
+          ? config.columns
+              .filter((c) => c.kind === "stage" && c.id !== card.stageId)
+              .map((c) => ({ id: MOVE + c.id, label: `Move to ${c.title}` }))
+          : [];
+        bridge.request("session.contextMenu", { id: card.session.id, x, y, items }, { wait: true }).then(
+          (picked) => {
+            if (editor && typeof picked === "string" && picked.startsWith(MOVE)) setStage(card.session.id, picked.slice(MOVE.length));
+          },
+          (e: Error) => console.error(`[kanban] session.contextMenu failed: ${e.message}`),
+        );
+      }
+    : undefined;
 
   return (
     <>
-      <Board columns={columns} onOpen={openSession} onExport={() => setConfigDialog("export")} editor={editor} />
+      <Board
+        columns={columns}
+        selected={selected}
+        onOpen={openSession}
+        onExport={() => setConfigDialog("export")}
+        editor={editor}
+        hostMenu={hostMenu}
+      />
       {editor && dialog && (
         <ColumnDialog
           column={editing}

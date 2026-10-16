@@ -137,10 +137,21 @@ facet lists in its `options`, so prefix them (`ci:failing`, `review:approved`).
 reference: facets GitHub CI, GitHub review, GitHub PR and GitHub comments over
 `github_pr_status`.
 
+### Opening Cards
+
+Clicking a Card opens its Session. With the dashboard's split view on (the
+button in the page header), the Session opens below the Board instead, and its
+Card is outlined.
+
+A Card's `⋯` button or right-click opens the dashboard's session menu, the
+same one as the sidebar: rename, pin, snooze, archive, trash and the rest,
+plus a **Move to** entry per Stage column. On a dashboard without that menu,
+`⋯` opens the Board's own **Move to** menu.
+
 ### Moving Cards
 
 To set a Session's Stage, drag its Card onto a Stage column (on touch, long
-press first), or pick one under **Move to** from the Card's `⋯` button or
+press first), or pick a **Move to** entry from the Card's `⋯` button or
 right-click menu. A Card dragged out of a Signal column records the new Stage
 but stays until the Signal clears, showing the Stage as its chip. Read-only
 and CityHall dashboards can't move Cards.
