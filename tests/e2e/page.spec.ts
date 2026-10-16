@@ -331,20 +331,20 @@ test("editing a Signal column's Rules moves Cards and saves through config.set",
   await b.getByRole("button", { name: "Edit column Action needed", exact: true }).click();
   let edit = b.getByRole("dialog", { name: "Edit column" });
   const rules = edit.getByRole("group", { name: /^Rule / });
-  await expect(rules).toHaveCount(5);
+  await expect(rules).toHaveCount(6);
   const first = rules.first();
   await expect(first.getByLabel("Field")).toHaveValue("status");
   await expect(first.getByLabel("Operator")).toHaveValue("is");
   await expect(first.getByLabel("Value")).toHaveValue("Waiting");
-  await expect(rules.nth(3).getByLabel("Plugin")).toHaveValue("*");
-  await expect(rules.nth(3).getByLabel("Value")).toHaveValue("danger");
+  await expect(rules.nth(4).getByLabel("Plugin")).toHaveValue("*");
+  await expect(rules.nth(4).getByLabel("Value")).toHaveValue("danger");
 
   // Removing a Rule's only condition removes the Rule.
   await first.getByRole("button", { name: "Remove condition" }).click();
-  await expect(rules).toHaveCount(4);
+  await expect(rules).toHaveCount(5);
   await edit.getByRole("button", { name: "Save" }).click();
   await expect(column(page, "needs-testing").getByTestId("card-waiting")).toBeVisible();
-  expect(await sentRules(page, 1, "action-needed")).toHaveLength(4);
+  expect(await sentRules(page, 1, "action-needed")).toHaveLength(5);
 
   // A new Rule on Error pulls in the Idle Card.
   await b.getByRole("button", { name: "Edit column Error", exact: true }).click();
