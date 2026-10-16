@@ -81,8 +81,8 @@ A condition is a field, an operator and, for `is` and `is not`, a value:
 - **`is` / `is not`** compare the exact value, case included. `is not` needs
   the field to have a value, so a missing field matches neither.
 - **`is set` / `is empty`** treat `0`, `false` and blank text as empty. So
-  `urgent is false` and `urgent is empty` both hold for a Session that is not
-  urgent, and `pending approvals is set` means at least one.
+  `urgent is false` and `urgent is empty` both hold when the urgent flag is
+  false, and `pending approvals is set` means at least one.
 - When several plugin row columns match one condition, `is` needs any of them
   to equal the value and `is not` needs none to.
 
