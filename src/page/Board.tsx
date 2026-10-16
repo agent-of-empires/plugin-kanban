@@ -1,4 +1,5 @@
-import type { BoardColumn, Card } from "../shared/board-model";
+import { useMemo, useState } from "react";
+import { type BoardColumn, type Card, filterBoard } from "../shared/board-model";
 
 function CardView({ card, onOpen }: { card: Card; onOpen: (id: string) => void }) {
   const { session, stageChip, badges } = card;
@@ -35,22 +36,37 @@ function CardView({ card, onOpen }: { card: Card; onOpen: (id: string) => void }
 }
 
 export function Board({ columns, onOpen }: { columns: BoardColumn[]; onOpen: (id: string) => void }) {
+  const [query, setQuery] = useState("");
+  const shown = useMemo(() => filterBoard(columns, query), [columns, query]);
+  const searching = query.trim() !== "";
   return (
-    <main className="board">
-      {columns.map(({ column, cards }) => (
-        <section key={column.id} className="column" aria-label={column.title} data-testid={`column-${column.id}`}>
-          <h2>
-            {column.title} <span className="count">{cards.length}</span>
-          </h2>
-          <ul>
-            {cards.map((card) => (
-              <li key={card.session.id}>
-                <CardView card={card} onOpen={onOpen} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-    </main>
+    <>
+      <header className="toolbar">
+        <input
+          type="search"
+          className="search"
+          placeholder="Search sessions"
+          aria-label="Search sessions"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </header>
+      <main className="board">
+        {shown.map(({ column, cards, total }) => (
+          <section key={column.id} className="column" aria-label={column.title} data-testid={`column-${column.id}`}>
+            <h2>
+              {column.title} <span className="count">{searching ? `${cards.length}/${total}` : total}</span>
+            </h2>
+            <ul>
+              {cards.map((card) => (
+                <li key={card.session.id}>
+                  <CardView card={card} onOpen={onOpen} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </main>
+    </>
   );
 }

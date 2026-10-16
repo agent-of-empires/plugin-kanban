@@ -64,6 +64,9 @@ of its Rules does. Urgent, unread, last error, pending Approvals and last
 activity are not yet exposed to plugin pages by the dashboard, so Rules on
 them do not match for now.
 
+The search box matches title, path, repo, branch and agent, like the sidebar
+filter. Group names are not exposed to plugin pages yet, so they do not match.
+
 ## Where data lives
 
 The worker owns all Board state, so every device sees the same Board.
