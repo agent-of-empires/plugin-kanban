@@ -116,3 +116,19 @@ test.each([
 test("a missing column triggers nothing", () => {
   expect(enterAction(undefined)).toBeUndefined();
 });
+
+test("editColumn replaces one Column's Rules and keeps the rest", () => {
+  const rules = [[{ field: "unread" as const, op: "is set" as const }]];
+  const edited = editColumn(DEFAULT_CONFIG, "error", { rules });
+  valid(edited);
+  expect(edited.columns[1]).toEqual({ ...DEFAULT_CONFIG.columns[1], rules });
+  expect(edited.columns.filter((c) => c.id !== "error")).toEqual(DEFAULT_CONFIG.columns.filter((c) => c.id !== "error"));
+  valid(editColumn(DEFAULT_CONFIG, "action-needed", { rules: [] }));
+});
+
+test("a new Signal column can start with Rules", () => {
+  const rules = [[{ field: "status" as const, op: "is" as const, value: "Idle" }]];
+  const added = addColumn(DEFAULT_CONFIG, "Idle", "signal", "none", rules);
+  valid(added);
+  expect(added.columns.at(-1)).toMatchObject({ kind: "signal", rules });
+});

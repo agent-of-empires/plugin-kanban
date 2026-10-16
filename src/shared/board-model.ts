@@ -69,7 +69,7 @@ export interface Snapshot {
   config: Config;
 }
 
-const TONES: readonly unknown[] = ["neutral", "info", "success", "warn", "danger"];
+export const TONES: readonly Tone[] = ["neutral", "info", "success", "warn", "danger"];
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -186,7 +186,7 @@ function badges(session: BridgeSession, entries: UiEntry[]): Badge[] {
       text: typeof b.text === "string" ? b.text : undefined,
       icon: typeof b.icon === "string" ? b.icon : undefined,
       tooltip: typeof b.tooltip === "string" ? b.tooltip : undefined,
-      tone: (TONES.includes(b.tone) ? b.tone : "neutral") as Tone,
+      tone: ((TONES as readonly unknown[]).includes(b.tone) ? b.tone : "neutral") as Tone,
     }))
     .filter((b) => b.text || b.icon);
 }
