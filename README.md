@@ -6,8 +6,7 @@ An [Agent of Empires](https://github.com/agent-of-empires/agent-of-empires)
 plugin. It adds a **Board** page (the `page` UI slot) backed by a Node worker
 that speaks JSON-RPC 2.0 over newline-delimited JSON on stdio.
 
-> **Status:** early. Columns are editable and Cards movable; editing Rules
-> comes later. The page slot needs core
+> **Status:** early. Columns, Rules and Cards are editable. The page slot needs core
 > [agent-of-empires#4459](https://github.com/agent-of-empires/agent-of-empires/issues/4459)
 > (`api_version` 16).
 
@@ -65,13 +64,31 @@ The default Board:
 Column dialog. A Column's kind is fixed once created. Drag a header to reorder
 Columns; for Signal columns that order is their priority. Deleting a Stage
 column sends its Cards to the leftmost Stage column, and the last Stage column
-cannot be deleted. A new Signal column has no Rules yet, so it holds nothing.
+cannot be deleted. A Signal column with no Rules holds nothing.
 Editing is hidden in read-only and CityHall mode.
 
-A Rule is a list of conditions that must all hold; a Column matches when any
-of its Rules does. Urgent, unread, last error, pending Approvals and last
-activity are not yet exposed to plugin pages by the dashboard, so Rules on
-them do not match for now.
+### Rules
+
+A Signal column's Rules are edited in its Column dialog, the shipped ones
+included. A Rule is a list of conditions that must all hold; a Column matches
+when any of its Rules does. There is no nesting.
+
+A condition is a field, an operator and, for `is` and `is not`, a value:
+
+- **Fields:** Status, Urgent, Unread, Pending approvals, Last error, and a
+  plugin row column's tone or text, picked by plugin id and slot id, where
+  `*` means any.
+- **`is` / `is not`** compare the exact value, case included. `is not` needs
+  the field to have a value, so a missing field matches neither.
+- **`is set` / `is empty`** treat `0`, `false` and blank text as empty. So
+  `urgent is false` and `urgent is empty` both hold for a Session that is not
+  urgent, and `pending approvals is set` means at least one.
+- When several plugin row columns match one condition, `is` needs any of them
+  to equal the value and `is not` needs none to.
+
+Urgent, unread, last error and pending Approvals are not yet exposed to plugin
+pages by the dashboard, so they read as missing for now; so is last activity,
+which Card order uses.
 
 The search box matches title, path, repo, branch and agent, like the sidebar
 filter. Group names are not exposed to plugin pages yet, so they do not match.
