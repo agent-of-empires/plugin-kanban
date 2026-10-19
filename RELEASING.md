@@ -40,4 +40,5 @@ pin, creating the plugin's entry on the first release.
    at that version.
 
 The tree hash comes from the aoe release pinned as `AOE_HASH_TOOL` in
-`release.yml`. Bump it only when core changes the hash algorithm.
+`release.yml`, checked against `AOE_HASH_TOOL_SHA256`. Bump both together, and
+only when core changes the hash algorithm.

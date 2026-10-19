@@ -23,6 +23,8 @@ env:
   # tag always hashes the same way; bump it deliberately if core changes the
   # hash algorithm.
   AOE_HASH_TOOL: v1.20.0
+  # sha256 of aoe-linux-amd64.tar.gz for AOE_HASH_TOOL; bump them together.
+  AOE_HASH_TOOL_SHA256: 09bc9dfa13381ede062b71c439315c1eba37ee23d404c34ed147ddd69162a7db
 
 jobs:
   checks:
@@ -59,8 +61,8 @@ jobs:
           set -euo pipefail
           bindir="$(mktemp -d)"
           gh release download "$AOE_HASH_TOOL" --repo agent-of-empires/agent-of-empires \
-            --pattern "aoe-linux-amd64.tar.gz*" --dir "$bindir"
-          (cd "$bindir" && sha256sum -c aoe-linux-amd64.tar.gz.sha256 && tar -xzf aoe-linux-amd64.tar.gz)
+            --pattern "aoe-linux-amd64.tar.gz" --dir "$bindir"
+          (cd "$bindir" && echo "${AOE_HASH_TOOL_SHA256}  aoe-linux-amd64.tar.gz" | sha256sum -c - && tar -xzf aoe-linux-amd64.tar.gz)
           echo "AOE_BIN=${bindir}/aoe-linux-amd64" >> "$GITHUB_ENV"
 
       - name: Build archive, tree hash and release notes
