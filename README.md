@@ -41,7 +41,10 @@ Every Session that is not Dismissed (archived, snoozed or trashed) is one
 Placement: Signal columns are checked left to right and the first one whose
 Rules match wins; otherwise the Card sits in its Stage column. A Session with
 no Stage, or one whose Stage column no longer exists, goes to the leftmost
-Stage column. A Card held by a Signal column shows its Stage as a chip.
+Stage column.
+
+A Card reads like the Session's sidebar row: status glyph and title, repo and
+branch, then plugin badges (with their icons) and plugin row column text.
 
 Within a Column, Cards follow the sidebar's attention order: urgent first,
 then Waiting, Error (or a plugin column toned danger or warn), Idle, Running,
@@ -51,7 +54,7 @@ The default Board:
 
 | Column | Kind | Holds a Session when |
 |---|---|---|
-| Action needed | Signal | Status is Waiting, it is urgent, it has pending Approvals, or any plugin row column is toned danger or warn |
+| Action needed | Signal | Status is Waiting, it is urgent, it has pending Approvals, it is unread, or any plugin row column is toned danger or warn |
 | Error | Signal | Status is Error, or its last error is set |
 | In progress | Stage | |
 | Needs testing | Stage | |
@@ -67,6 +70,10 @@ column sends its Cards to the leftmost Stage column, and the last Stage column
 cannot be deleted. A Signal column with no Rules holds nothing.
 Editing is hidden in read-only and CityHall mode.
 
+To share a Board, **Export** shows its config as JSON to copy; the page's
+sandbox allows no file download. **Import** on another dashboard takes that
+JSON, pasted or from a file, and replaces the whole Board.
+
 ### Rules
 
 A Signal column's Rules are edited in its Column dialog, the shipped ones
@@ -75,9 +82,12 @@ when any of its Rules does. There is no nesting.
 
 A condition is a field, an operator and, for `is` and `is not`, a value:
 
-- **Fields:** Status, Urgent, Unread, Pending approvals, Last error, and a
+- **Fields:** Status, Urgent, Unread, Pending approvals, Last error, every
+  plugin filter facet (such as GitHub CI or GitHub review, see below), and a
   plugin row column's tone or text, picked by plugin id and slot id, where
   `*` means any.
+- **Facets** offer their own values, e.g. `GitHub CI is failing`. `is set`
+  holds when the Session has any value of that facet, `is not` needs one.
 - **`is` / `is not`** compare the exact value, case included. `is not` needs
   the field to have a value, so a missing field matches neither.
 - **`is set` / `is empty`** treat `0`, `false` and blank text as empty. So
@@ -93,12 +103,58 @@ which Card order uses.
 The search box matches title, path, repo, branch and agent, like the sidebar
 filter. Group names are not exposed to plugin pages yet, so they do not match.
 
+### One-click messages
+
+A Column can carry one predefined message ("One-click message" in its Column
+dialog: a button label, the message, and optionally a Stage to move the Card to
+afterwards). Each Card in it then shows a button that sends the message to that
+Session, and the Column header shows one that sends it to every Card shown, after
+a second click to confirm. Pair it with a Signal Rule, such as a GitHub comments
+facet, to nudge every Session that needs the same thing.
+
+The worker sends the Column's stored message, never text from the page, through
+the host's `sessions.message.send` (the `session.message` capability), then moves
+the Card only for Sessions that took it. The host marks the message as sent by
+this plugin and rate-limits it to 600 an hour. Failures reach the worker log, not
+the page. Hidden in read-only and CityHall mode.
+
+### Making a plugin work with the Board
+
+A plugin's row columns and badges show on Cards as they do in the sidebar. To
+let Rules match on its state, a plugin must publish **filter facets**, the same
+ones the sidebar's Filter menu uses; the Board reads nothing else, so a plugin
+without them only offers raw tone and text conditions.
+
+1. Declare a `filter-facet` slot per facet in `aoe-plugin.toml` and push one
+   global entry each: `{label, column, options: [{value, label?, tone?}]}`,
+   where `column` is the id of one of its `row-column` slots.
+2. On that row column's per-Session payload, list the Session's current values
+   in `filter_values`.
+
+One row column can back several facets: the Board only counts the values a
+facet lists in its `options`, so prefix them (`ci:failing`, `review:approved`).
+[plugin-github](https://github.com/agent-of-empires/plugin-github) is the
+reference: facets GitHub CI, GitHub review, GitHub PR and GitHub comments over
+`github_pr_status`.
+
+### Opening Cards
+
+Clicking a Card opens its Session. With the dashboard's split view on (the
+button in the page header), the Session opens below the Board instead, and its
+Card is outlined.
+
+A Card's `⋯` button or right-click opens the dashboard's session menu, the
+same one as the sidebar: rename, pin, snooze, archive, trash and the rest,
+plus, on an editable Board, a **Move to** entry for each other Stage column,
+and for the Card's own archive or trash Column to retry its action. On a dashboard without that menu,
+`⋯` opens the Board's own **Move to** menu.
+
 ### Moving Cards
 
 To set a Session's Stage, drag its Card onto a Stage column (on touch, long
-press first), or pick one under **Move to** from the Card's `⋯` button or
+press first), or pick a **Move to** entry from the Card's `⋯` button or
 right-click menu. A Card dragged out of a Signal column records the new Stage
-but stays until the Signal clears, showing the Stage as its chip. Read-only
+but stays until the Signal clears. Read-only
 and CityHall dashboards can't move Cards.
 
 On a phone the Board shows one Column per screen: swipe sideways, or tap a dot

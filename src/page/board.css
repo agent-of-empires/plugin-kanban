@@ -7,7 +7,7 @@ body {
   margin: 0;
   background: var(--color-surface-900);
   color: var(--color-text-primary);
-  font: 13px/1.4 "Geist", system-ui, sans-serif;
+  font: 13px/1.4 "Geist Sans", system-ui, sans-serif;
 }
 
 .notice {
@@ -22,10 +22,15 @@ body {
 }
 
 .toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   padding: 12px 12px 0;
 }
 
 .search {
+  /* A flex item; lets it shrink so the toolbar buttons stay on screen. */
+  min-width: 0;
   width: 280px;
   max-width: 100%;
   padding: 6px 10px;
@@ -55,6 +60,8 @@ body {
   display: flex;
   flex: 0 0 280px;
   flex-direction: column;
+  /* Lets long titles and branches truncate instead of widening the Column. */
+  min-width: 0;
   min-height: 0;
   background: var(--color-surface-850);
   border: 1px solid var(--color-surface-700);
@@ -117,6 +124,13 @@ body {
 
 .card:hover {
   border-color: var(--color-surface-600);
+}
+
+/* The Session the dashboard's split view shows. */
+.card.selected {
+  border-color: var(--color-accent-500);
+  box-shadow: 0 0 0 2px var(--color-accent-500);
+  background: color-mix(in srgb, var(--color-accent-500) 14%, var(--color-surface-800));
 }
 
 .card.dragging {
@@ -218,7 +232,7 @@ body {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 .truncate {
@@ -237,51 +251,66 @@ body {
   font-family: "Geist Mono", ui-monospace, monospace;
 }
 
-.dot {
+.glyph {
   flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-status-idle);
+  color: var(--color-status-idle);
+  font: 14px/1 "Geist Mono", ui-monospace, monospace;
 }
 
-/* Status colours follow the dashboard's (web/src/lib/session.ts). */
+/* Status colours follow the dashboard's (web/src/lib/session.ts); the glyph
+   always takes one, the title only while the Session is active. */
 .status-running {
-  background: var(--color-status-running);
+  color: var(--color-status-running);
 }
 .status-waiting {
-  background: var(--color-status-waiting);
+  color: var(--color-status-waiting);
 }
 .status-error,
 .status-deleting {
-  background: var(--color-status-error);
+  color: var(--color-status-error);
 }
 .status-starting,
 .status-creating {
-  background: var(--color-status-starting);
+  color: var(--color-status-starting);
 }
 .status-stopped {
-  background: var(--color-status-stopped);
+  color: var(--color-status-stopped);
+}
+
+/* Badges, then the row column pushed right, as the sidebar's plugin line. */
+.plugin-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.row-column {
+  --tone: var(--color-status-idle);
+  flex: none;
+  max-width: 128px;
+  margin-left: auto;
+  color: var(--tone);
+  font: 11px "Geist Mono", ui-monospace, monospace;
 }
 
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .chip {
   --tone: var(--color-status-idle);
-  padding: 1px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--tone) 15%, transparent);
   color: var(--tone);
   font: 11px "Geist Mono", ui-monospace, monospace;
-}
-
-.chip.stage {
-  --tone: var(--color-text-secondary);
-  border: 1px solid var(--color-surface-600);
 }
 
 /* Plugin tones, as the dashboard maps them (web/src/lib/pluginUi.ts). */
@@ -465,6 +494,25 @@ button.danger {
   width: min(720px, 94vw);
 }
 
+.config-text {
+  box-sizing: border-box;
+  width: 100%;
+  height: 50vh;
+  margin: 8px 0;
+  padding: 8px;
+  background: var(--color-surface-900);
+  border: 1px solid var(--color-surface-700);
+  border-radius: 6px;
+  color: inherit;
+  font: 12px/1.4 "Geist Mono", ui-monospace, monospace;
+  resize: vertical;
+}
+
+.error {
+  color: var(--color-status-error);
+  font-size: 12px;
+}
+
 .column-dialog .rules {
   display: flex;
   flex-direction: column;
@@ -502,4 +550,26 @@ button.danger {
   min-width: 36px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.unread-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-status-unread);
+}
+
+.card-send,
+.column-send {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.card-send {
+  margin: 0 10px 8px;
+}
+
+.column-send {
+  margin-right: 4px;
 }

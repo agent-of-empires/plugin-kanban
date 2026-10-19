@@ -11,14 +11,32 @@ export interface PluginField {
   attr: "tone" | "text";
 }
 
+// One of a plugin's `filter-facet` entries, such as GitHub's "CI": the values
+// its row column lists in `filter_values` among the facet's options.
+export interface FacetField {
+  plugin_id: string;
+  facet_id: string;
+}
+
 export type Op = "is" | "is not" | "is set" | "is empty";
 
 export interface Condition {
-  field: SessionField | PluginField;
+  field: SessionField | PluginField | FacetField;
   op: Op;
   // Present only for "is" and "is not".
   value?: string | number | boolean;
 }
+
+// A one-click message for the Cards of a Column. `stage` is a Stage column id
+// the Session moves to once the message is delivered.
+export interface Send {
+  label: string;
+  message: string;
+  stage?: string;
+}
+
+// Well under the host's 64 KiB message cap and the snapshot cap that carries it.
+export const SEND_MESSAGE_MAX = 4_000;
 
 export interface Column {
   id: string;
@@ -28,6 +46,7 @@ export interface Column {
   // on Stage columns.
   rules: Condition[][];
   on_enter: "none" | "archive" | "trash";
+  send?: Send;
 }
 
 export interface Config {
@@ -54,6 +73,7 @@ export const DEFAULT_CONFIG: Config = {
       [{ field: "status", op: "is", value: "Waiting" }],
       [{ field: "urgent", op: "is", value: true }],
       [{ field: "pending_approvals", op: "is set" }],
+      [{ field: "unread", op: "is", value: true }],
       anyTone("danger"),
       anyTone("warn"),
     ]),
@@ -86,12 +106,18 @@ export function addColumn(
   kind: Column["kind"],
   on_enter: Column["on_enter"] = "none",
   rules: Condition[][] = [],
+  send?: Send,
 ): Config {
   const id = newColumnId(config.columns.map((c) => c.id));
-  return { ...config, columns: [...config.columns, { id, title, kind, rules, on_enter }] };
+  return { ...config, columns: [...config.columns, { id, title, kind, rules, on_enter, ...(send && { send }) }] };
 }
 
-export const editColumn = (config: Config, id: string, changes: Partial<Pick<Column, "title" | "on_enter" | "rules">>): Config => ({
+// A `send` of undefined removes the Column's message.
+export const editColumn = (
+  config: Config,
+  id: string,
+  changes: Partial<Pick<Column, "title" | "on_enter" | "rules" | "send">>,
+): Config => ({
   ...config,
   columns: config.columns.map((c) => (c.id === id ? { ...c, ...changes } : c)),
 });
@@ -136,6 +162,11 @@ function onlyKeys(obj: Record<string, unknown>, keys: readonly string[], where: 
 function checkField(field: unknown, where: string) {
   if (SESSION_FIELDS.includes(field)) return;
   if (!isRecord(field)) throw new Error(`${where}: unknown field`);
+  if ("facet_id" in field) {
+    onlyKeys(field, ["plugin_id", "facet_id"], where);
+    if (!isName(field.plugin_id) || !isName(field.facet_id)) throw new Error(`${where}: plugin_id and facet_id required`);
+    return;
+  }
   onlyKeys(field, ["plugin_id", "slot_id", "attr"], where);
   if (!isName(field.plugin_id) || !isName(field.slot_id)) throw new Error(`${where}: plugin_id and slot_id required`);
   if (field.attr !== "tone" && field.attr !== "text") throw new Error(`${where}: attr must be tone or text`);
@@ -149,15 +180,26 @@ function checkCondition(c: unknown, where: string) {
   const needsValue = c.op === "is" || c.op === "is not";
   const hasValue = ["string", "number", "boolean"].includes(typeof c.value);
   if (needsValue !== hasValue) throw new Error(`${where}: "${String(c.op)}" ${needsValue ? "needs" : "takes no"} value`);
+  // JSON.parse reads 1e400 as Infinity, which JSON.stringify then writes as null.
+  if (typeof c.value === "number" && !Number.isFinite(c.value)) throw new Error(`${where}: value must be a finite number`);
+}
+
+function checkSend(send: unknown, where: string) {
+  if (!isRecord(send)) throw new Error(`${where}: not an object`);
+  onlyKeys(send, ["label", "message", "stage"], where);
+  if (!isName(send.label) || !isName(send.message)) throw new Error(`${where}: label and message required`);
+  if (send.message.length > SEND_MESSAGE_MAX) throw new Error(`${where}: message over ${SEND_MESSAGE_MAX} characters`);
+  if (send.stage !== undefined && !isName(send.stage)) throw new Error(`${where}: stage must be a column id`);
 }
 
 function checkColumn(col: unknown, where: string) {
   if (!isRecord(col)) throw new Error(`${where}: not an object`);
-  onlyKeys(col, ["id", "title", "kind", "rules", "on_enter"], where);
+  onlyKeys(col, ["id", "title", "kind", "rules", "on_enter", "send"], where);
   if (!isName(col.id)) throw new Error(`${where}: id required`);
   if (!isName(col.title)) throw new Error(`${where}: title required`);
   if (col.kind !== "stage" && col.kind !== "signal") throw new Error(`${where}: kind must be stage or signal`);
   if (!ON_ENTER.includes(col.on_enter)) throw new Error(`${where}: on_enter must be none, archive or trash`);
+  if (col.send !== undefined) checkSend(col.send, `${where} send`);
   if (!Array.isArray(col.rules)) throw new Error(`${where}: rules must be an array`);
   if (col.kind === "stage" && col.rules.length > 0) throw new Error(`${where}: Stage columns take no rules`);
   col.rules.forEach((rule, r) => {
@@ -180,4 +222,15 @@ export function parseConfig(value: unknown): ParseResult {
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
+}
+
+// For an imported file or pasted text.
+export function parseConfigJson(text: string): ParseResult {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, error: `not valid JSON: ${(e as Error).message}` };
+  }
+  return parseConfig(value);
 }

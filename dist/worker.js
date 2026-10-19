@@ -1,4 +1,5 @@
 // src/shared/board-config.ts
+var SEND_MESSAGE_MAX = 4e3;
 var signal = (id, title, rules) => ({
   id,
   title,
@@ -17,6 +18,7 @@ var DEFAULT_CONFIG = {
       [{ field: "status", op: "is", value: "Waiting" }],
       [{ field: "urgent", op: "is", value: true }],
       [{ field: "pending_approvals", op: "is set" }],
+      [{ field: "unread", op: "is", value: true }],
       anyTone("danger"),
       anyTone("warn")
     ]),
@@ -42,6 +44,11 @@ function onlyKeys(obj, keys, where) {
 function checkField(field, where) {
   if (SESSION_FIELDS.includes(field)) return;
   if (!isRecord(field)) throw new Error(`${where}: unknown field`);
+  if ("facet_id" in field) {
+    onlyKeys(field, ["plugin_id", "facet_id"], where);
+    if (!isName(field.plugin_id) || !isName(field.facet_id)) throw new Error(`${where}: plugin_id and facet_id required`);
+    return;
+  }
   onlyKeys(field, ["plugin_id", "slot_id", "attr"], where);
   if (!isName(field.plugin_id) || !isName(field.slot_id)) throw new Error(`${where}: plugin_id and slot_id required`);
   if (field.attr !== "tone" && field.attr !== "text") throw new Error(`${where}: attr must be tone or text`);
@@ -54,14 +61,23 @@ function checkCondition(c, where) {
   const needsValue = c.op === "is" || c.op === "is not";
   const hasValue = ["string", "number", "boolean"].includes(typeof c.value);
   if (needsValue !== hasValue) throw new Error(`${where}: "${String(c.op)}" ${needsValue ? "needs" : "takes no"} value`);
+  if (typeof c.value === "number" && !Number.isFinite(c.value)) throw new Error(`${where}: value must be a finite number`);
+}
+function checkSend(send, where) {
+  if (!isRecord(send)) throw new Error(`${where}: not an object`);
+  onlyKeys(send, ["label", "message", "stage"], where);
+  if (!isName(send.label) || !isName(send.message)) throw new Error(`${where}: label and message required`);
+  if (send.message.length > SEND_MESSAGE_MAX) throw new Error(`${where}: message over ${SEND_MESSAGE_MAX} characters`);
+  if (send.stage !== void 0 && !isName(send.stage)) throw new Error(`${where}: stage must be a column id`);
 }
 function checkColumn(col, where) {
   if (!isRecord(col)) throw new Error(`${where}: not an object`);
-  onlyKeys(col, ["id", "title", "kind", "rules", "on_enter"], where);
+  onlyKeys(col, ["id", "title", "kind", "rules", "on_enter", "send"], where);
   if (!isName(col.id)) throw new Error(`${where}: id required`);
   if (!isName(col.title)) throw new Error(`${where}: title required`);
   if (col.kind !== "stage" && col.kind !== "signal") throw new Error(`${where}: kind must be stage or signal`);
   if (!ON_ENTER.includes(col.on_enter)) throw new Error(`${where}: on_enter must be none, archive or trash`);
+  if (col.send !== void 0) checkSend(col.send, `${where} send`);
   if (!Array.isArray(col.rules)) throw new Error(`${where}: rules must be an array`);
   if (col.kind === "stage" && col.rules.length > 0) throw new Error(`${where}: Stage columns take no rules`);
   col.rules.forEach((rule, r) => {
@@ -252,9 +268,28 @@ async function setConfig(params) {
   config = parsed.config;
   publish(true);
 }
+async function sendMessage(params) {
+  const { columnId, sessionIds } = isRecord2(params) ? params : {};
+  const send = config.columns.find((c) => c.id === columnId)?.send;
+  if (!send || !Array.isArray(sessionIds) || !sessionIds.every((id) => typeof id === "string" && id)) {
+    log("ignored message.send: expected {columnId with a message, sessionIds}");
+    return;
+  }
+  const moveTo = config.columns.some((c) => c.id === send.stage && c.kind === "stage") ? send.stage : void 0;
+  for (const sessionId of sessionIds) {
+    try {
+      await call("sessions.message.send", { session_id: sessionId, message: send.message });
+    } catch (e) {
+      log(`messaging ${sessionId} failed: ${errorText(e)}`);
+      continue;
+    }
+    if (moveTo && stages.get(sessionId) !== moveTo) await setStage({ sessionId, columnId: moveTo }).catch((e) => log(`moving ${sessionId} failed: ${errorText(e)}`));
+  }
+}
 var handlers = /* @__PURE__ */ new Map([
   ["stage.set", setStage],
   ["config.set", setConfig],
+  ["message.send", sendMessage],
   ["session.status.changed", resync]
 ]);
 var queue = Promise.resolve();

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { type Column, type Condition, type Config, DEFAULT_CONFIG } from "../src/shared/board-config";
-import { type BridgeSession, type UiEntry, buildBoard, filterBoard, findSnapshot, rowColumnSlots } from "../src/shared/board-model";
+import { type BridgeSession, type UiEntry, buildBoard, facets, filterBoard, findSnapshot, rowColumnSlots } from "../src/shared/board-model";
 
 const session = (id: string, extra: Partial<BridgeSession> = {}): BridgeSession => ({
   id,
@@ -47,6 +47,7 @@ test.each<[string, Partial<BridgeSession>, UiEntry[], string]>([
   ["status Waiting", { status: "Waiting" }, [], "action-needed"],
   ["urgent", { urgent: true }, [], "action-needed"],
   ["pending approvals", { pending_approvals: 2 }, [], "action-needed"],
+  ["unread", { unread: true }, [], "action-needed"],
   ["plugin tone danger", {}, [rowColumn("s", { tone: "danger" })], "action-needed"],
   ["plugin tone warn", {}, [rowColumn("s", { tone: "warn" })], "action-needed"],
   ["status Error", { status: "Error" }, [], "error"],
@@ -73,14 +74,14 @@ test("leftmost Signal column wins", () => {
   expect(placement([session("s", { status: "Error", urgent: true })], [], {}, swapped)).toEqual({ s: "error" });
 });
 
-test("a Signal beats the stored Stage, and the Card carries a stage chip", () => {
+test("a Signal beats the stored Stage, and the Card keeps its Stage id", () => {
   const b = board([session("s", { status: "Waiting" })], [], { s: "needs-testing" });
-  expect(b[0].cards[0]).toMatchObject({ stageId: "needs-testing", stageChip: "Needs testing" });
+  expect(b[0].cards[0]).toMatchObject({ stageId: "needs-testing" });
 });
 
 test("missing or unknown Stage resolves to the leftmost Stage column", () => {
   expect(placement([session("a"), session("b")], [], { b: "gone" })).toEqual({ a: "in-progress", b: "in-progress" });
-  expect(board([session("a")]).flatMap((b) => b.cards)[0]).toMatchObject({ stageId: "in-progress", stageChip: undefined });
+  expect(board([session("a")]).flatMap((b) => b.cards)[0]).toMatchObject({ stageId: "in-progress" });
 });
 
 test("a Session sits in its stored Stage when no Signal matches", () => {
@@ -317,5 +318,67 @@ test("search keeps every Column and counts matched over total", () => {
     ["needs-testing", 0, 0],
     ["waiting-for-review", 0, 0],
     ["done", 0, 0],
+  ]);
+});
+
+// GitHub's shape: one row column backs several facets through filter_values.
+const ciFacet: UiEntry = {
+  plugin_id: "gh",
+  slot: "filter-facet",
+  id: "ci",
+  payload: {
+    label: "GitHub CI",
+    column: "pr",
+    options: [{ value: "ci:passing", label: "passing" }, { value: "ci:failing", label: "failing" }],
+  },
+};
+const ci = { plugin_id: "gh", facet_id: "ci" };
+const withValues = (filter_values: string[]) => [ciFacet, rowColumn("s", { text: "x", filter_values }, "gh", "pr")];
+
+test.each<[string, Condition, UiEntry[], boolean]>([
+  ["is, listed", { field: ci, op: "is", value: "ci:failing" }, withValues(["ci:failing", "review:approved"]), true],
+  ["is, other value", { field: ci, op: "is", value: "ci:failing" }, withValues(["ci:passing"]), false],
+  ["is not, other value", { field: ci, op: "is not", value: "ci:failing" }, withValues(["ci:passing"]), true],
+  ["is not, listed", { field: ci, op: "is not", value: "ci:failing" }, withValues(["ci:failing"]), false],
+  // Another facet's value on the same column is not this facet's.
+  ["is not, only another facet", { field: ci, op: "is not", value: "ci:failing" }, withValues(["review:approved"]), false],
+  ["is set", { field: ci, op: "is set" }, withValues(["review:approved", "ci:passing"]), true],
+  ["is set, only another facet", { field: ci, op: "is set" }, withValues(["review:approved"]), false],
+  ["is empty, no column", { field: ci, op: "is empty" }, [ciFacet], true],
+  ["is, facet not published", { field: ci, op: "is", value: "ci:failing" }, withValues(["ci:failing"]).slice(1), false],
+  ["is, other plugin's column", { field: ci, op: "is", value: "ci:failing" }, [ciFacet, rowColumn("s", { text: "x", filter_values: ["ci:failing"] }, "other", "pr")], false],
+])("facet condition: %s", (_name, condition, entries, expected) => {
+  expect(inSignal([[condition]], session("s"), entries)).toBe(expected);
+});
+
+test("facets skips entries without a label or column, and options without a value", () => {
+  const facet = (id: string, payload: Record<string, unknown>, session_id?: string): UiEntry => ({
+    plugin_id: "gh",
+    slot: "filter-facet",
+    id,
+    session_id,
+    payload,
+  });
+  expect(
+    facets([
+      facet("ok", { label: "CI", column: "pr", options: [{ value: "ci:failing" }, { label: "no value" }] }),
+      facet("unlabelled", { column: "pr" }),
+      facet("no-column", { label: "X" }),
+      facet("per-session", { label: "X", column: "pr" }, "s"),
+      rowColumn("s", { label: "X", column: "pr" }),
+    ]),
+  ).toEqual([{ plugin_id: "gh", id: "ok", label: "CI", column: "pr", options: [{ value: "ci:failing", label: "ci:failing" }] }]);
+});
+
+test("Cards carry row-column text with its tone, and skip blank text", () => {
+  const entries = [
+    rowColumn("s", { text: "CI failing", tone: "danger", tooltip: "PR #1 (CI failing)" }, "gh", "pr"),
+    rowColumn("s", { text: "", tone: "warn" }, "gh", "hidden"),
+    rowColumn("s", { text: "odd", tone: "loud" }, "x", "y"),
+  ];
+  const card = board([session("s")], entries).flatMap((b) => b.cards)[0];
+  expect(card.columns).toEqual([
+    { text: "CI failing", tone: "danger", tooltip: "PR #1 (CI failing)" },
+    { text: "odd", tone: "neutral", tooltip: undefined },
   ]);
 });

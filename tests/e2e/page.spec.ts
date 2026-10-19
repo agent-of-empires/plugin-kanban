@@ -39,8 +39,14 @@ const fixtures = {
     session("archived", { archived: true }),
   ],
   entries: [
-    { plugin_id: "gh", slot: "row-column", id: "pr", session_id: "flagged", payload: { text: "changes", tone: "danger" } },
-    { plugin_id: "gh", slot: "row-badge", id: "pr", session_id: "fresh", payload: { text: "#42", tone: "success" } },
+    { plugin_id: "gh", slot: "row-column", id: "pr", session_id: "flagged", payload: { text: "changes", tone: "danger", filter_values: ["ci:failing"] } },
+    {
+      plugin_id: "gh",
+      slot: "filter-facet",
+      id: "ci",
+      payload: { label: "GitHub CI", column: "pr", options: [{ value: "ci:passing", label: "passing" }, { value: "ci:failing", label: "failing" }] },
+    },
+    { plugin_id: "gh", slot: "row-badge", id: "pr", session_id: "fresh", payload: { items: [{ text: "#42", tone: "success" }, { icon: "circle-x", tone: "danger", tooltip: "CI failing" }] } },
     { plugin_id: PLUGIN, slot: "page", id: "board", payload: { stages: { waiting: "needs-testing", shipped: "done" } } },
   ],
 };
@@ -74,17 +80,17 @@ test("renders the default Board from bridge data", async ({ page }) => {
 
   const action = column(page, "action-needed");
   await expect(action.locator("li")).toHaveCount(2);
-  await expect(action.getByTestId("card-waiting").getByTestId("stage-chip")).toHaveText("Needs testing");
-  await expect(action.getByTestId("card-flagged").getByTestId("stage-chip")).toHaveText("In progress");
   await expect(column(page, "error").getByTestId("card-broken")).toBeVisible();
   await expect(column(page, "done").getByTestId("card-shipped")).toBeVisible();
 
   const fresh = column(page, "in-progress").getByTestId("card-fresh");
   await expect(fresh).toContainText("Session fresh");
   await expect(fresh).toContainText("aoe · feat/board");
-  await expect(fresh).toContainText("claude");
   await expect(fresh).toContainText("#42");
-  await expect(fresh.getByTestId("stage-chip")).toHaveCount(0);
+  // Plugin icons render as lucide icons, not their names.
+  await expect(fresh.getByLabel("CI failing").locator("svg")).toHaveCount(1);
+  await expect(fresh).not.toContainText("circle-x");
+  await expect(board(page).getByTestId("card-flagged")).toContainText("changes");
 
   await expect(board(page).getByTestId("card-archived")).toHaveCount(0);
   await expect(board(page).getByRole("navigation", { name: "Columns" })).toBeHidden();
@@ -128,8 +134,17 @@ type Harness = {
   startPage: (f: unknown) => void;
   fixtures: () => typeof fixtures;
   publishStage: (sessionId: string, columnId: string) => void;
+  pushSelection: (sessionId: string | null) => void;
+  pickMenu: (picked: string | null) => void;
+  menus: { id: string; x: number; y: number; items: { id: string; label: string }[] }[];
   opened: string[];
-  actions: { method: string; params: { config: { columns: { id: string; title: string; kind: string; on_enter: string }[] } } }[];
+  actions: {
+    method: string;
+    params: {
+      config: { columns: { id: string; title: string; kind: string; on_enter: string; send?: { label: string; message: string; stage?: string } }[] };
+      sessionIds: string[];
+    };
+  }[];
 };
 // Runs fn in the harness window with a JSON argument; fn sees no closure.
 const harness = <T, A = undefined>(page: Page, fn: (h: Harness, arg: A) => T, arg?: A): Promise<T> =>
@@ -256,6 +271,50 @@ test("a rejected save rolls the edit back and says so", async ({ page }) => {
   await expect(titles(page)).toHaveText(DEFAULT_TITLES);
 });
 
+test("Export shows the current Board config as JSON", async ({ page }) => {
+  await board(page).getByRole("button", { name: "Export" }).click();
+  const dialog = board(page).getByRole("dialog", { name: "Export Board" });
+  const json = dialog.getByLabel("Board JSON");
+  await expect(json).toHaveJSProperty("readOnly", true);
+  expect(JSON.parse(await json.inputValue())).toEqual(DEFAULT_CONFIG);
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test("Import validates, then replaces the Board through config.set", async ({ page }) => {
+  const b = board(page);
+  await b.getByRole("button", { name: "Import" }).click();
+  const dialog = b.getByRole("dialog", { name: "Import Board" });
+  const json = dialog.getByLabel("Board JSON");
+  const replace = dialog.getByRole("button", { name: "Replace Board" });
+  await expect(replace).toBeDisabled();
+
+  await json.fill("{ nope");
+  await expect(dialog.getByRole("alert")).toContainText("not valid JSON");
+  await expect(replace).toBeDisabled();
+
+  const stage = { id: "todo", title: "Todo", kind: "stage", rules: [], on_enter: "none" };
+  await json.fill(JSON.stringify({ version: 1, columns: [{ ...stage, color: "red" }] }));
+  await expect(dialog.getByRole("alert")).toHaveText('column 0: unknown key "color"');
+  await expect(replace).toBeDisabled();
+
+  // A file loads into the text box.
+  const imported = { version: 1, columns: [stage, { ...stage, id: "later", title: "Later" }] };
+  await dialog.getByLabel("Board file").setInputFiles({
+    name: "board.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(imported)),
+  });
+  await expect(dialog).toContainText("Replaces this Board's 6 Columns with these 2.");
+  await replace.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(titles(page)).toHaveText(["Todo", "Later"]);
+  // Sessions whose Stage column is gone fall to the leftmost Stage column.
+  await expect(column(page, "todo").getByTestId("card-shipped")).toBeVisible();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(1);
+  expect(await harness(page, (h) => h.actions[0])).toEqual({ method: "config.set", params: { config: imported } });
+});
+
 type Rules = unknown[][];
 // Edits render before the bridge delivers them, so wait for the nth action.
 async function sentRules(page: Page, n: number, id: string) {
@@ -272,27 +331,27 @@ test("editing a Signal column's Rules moves Cards and saves through config.set",
   await b.getByRole("button", { name: "Edit column Action needed", exact: true }).click();
   let edit = b.getByRole("dialog", { name: "Edit column" });
   const rules = edit.getByRole("group", { name: /^Rule / });
-  await expect(rules).toHaveCount(5);
+  await expect(rules).toHaveCount(6);
   const first = rules.first();
   await expect(first.getByLabel("Field")).toHaveValue("status");
   await expect(first.getByLabel("Operator")).toHaveValue("is");
   await expect(first.getByLabel("Value")).toHaveValue("Waiting");
-  await expect(rules.nth(3).getByLabel("Plugin")).toHaveValue("*");
-  await expect(rules.nth(3).getByLabel("Value")).toHaveValue("danger");
+  await expect(rules.nth(4).getByLabel("Plugin")).toHaveValue("*");
+  await expect(rules.nth(4).getByLabel("Value")).toHaveValue("danger");
 
   // Removing a Rule's only condition removes the Rule.
   await first.getByRole("button", { name: "Remove condition" }).click();
-  await expect(rules).toHaveCount(4);
+  await expect(rules).toHaveCount(5);
   await edit.getByRole("button", { name: "Save" }).click();
   await expect(column(page, "needs-testing").getByTestId("card-waiting")).toBeVisible();
-  expect(await sentRules(page, 1, "action-needed")).toHaveLength(4);
+  expect(await sentRules(page, 1, "action-needed")).toHaveLength(5);
 
   // A new Rule on Error pulls in the Idle Card.
   await b.getByRole("button", { name: "Edit column Error", exact: true }).click();
   edit = b.getByRole("dialog", { name: "Edit column" });
   await edit.getByRole("button", { name: "+ Rule" }).click();
   const added = edit.getByRole("group", { name: "Rule 3" });
-  await added.getByLabel("Value").fill("Idle");
+  await added.getByLabel("Value").selectOption("Idle");
   await edit.getByRole("button", { name: "Save" }).click();
   await expect(column(page, "error").getByTestId("card-fresh")).toBeVisible();
   expect((await sentRules(page, 2, "error")).at(-1)).toEqual([{ field: "status", op: "is", value: "Idle" }]);
@@ -314,7 +373,7 @@ test("a plugin condition picks plugin and slot, and Save waits for a value", asy
 
   await add.getByRole("button", { name: "+ Rule" }).click();
   const rule = add.getByRole("group", { name: "Rule 1" });
-  await rule.getByLabel("Value").fill("Stopped");
+  await rule.getByLabel("Value").selectOption("Stopped");
   await rule.getByRole("button", { name: "+ and" }).click();
   const second = rule.locator(".condition").nth(1);
   await second.getByLabel("Field").selectOption("text");
@@ -338,6 +397,26 @@ test("a plugin condition picks plugin and slot, and Save waits for a value", asy
   ]);
 });
 
+test("a facet condition offers the plugin's facets and their options", async ({ page }) => {
+  const b = board(page);
+  await b.getByRole("button", { name: "+ Add column" }).click();
+  const add = b.getByRole("dialog", { name: "Add column" });
+  await add.getByLabel("Name").fill("CI failing");
+  await add.getByLabel(/^Signal/).check();
+  await add.getByRole("button", { name: "+ Rule" }).click();
+  const rule = add.getByRole("group", { name: "Rule 1" });
+  await rule.getByLabel("Field").selectOption({ label: "GitHub CI" });
+  await expect(rule.getByLabel("Plugin")).toHaveCount(0);
+  await expect(rule.getByLabel("Value").locator("option")).toHaveText(["passing", "failing"]);
+  await rule.getByLabel("Value").selectOption({ label: "failing" });
+  await add.getByRole("button", { name: "Save" }).click();
+
+  const id = await b.getByRole("region", { name: "CI failing" }).getAttribute("data-testid");
+  expect(await sentRules(page, 1, id!.replace(/^column-/, ""))).toEqual([
+    [{ field: { plugin_id: "gh", facet_id: "ci" }, op: "is", value: "ci:failing" }],
+  ]);
+});
+
 for (const flag of ["readOnly", "cityhall"] as const) {
   test(`${flag} context hides Column editing`, async ({ page }) => {
     await harness(
@@ -350,6 +429,8 @@ for (const flag of ["readOnly", "cityhall"] as const) {
     );
     await expect(titles(page)).toHaveText(DEFAULT_TITLES);
     await expect(board(page).getByRole("button", { name: "+ Add column" })).toHaveCount(0);
+    await expect(board(page).getByRole("button", { name: "Import" })).toHaveCount(0);
+    await expect(board(page).getByRole("button", { name: "Export" })).toBeVisible();
     await expect(board(page).getByRole("button", { name: /^Edit column/ })).toHaveCount(0);
     await expect(board(page).locator("h2[aria-roledescription]")).toHaveCount(0);
   });
@@ -362,7 +443,10 @@ test.describe("moving Cards", () => {
 
   const actions = (page: Page) => harness(page, (h) => h.actions);
   const stageSet = (sessionId: string, columnId: string) => ({ method: "stage.set", params: { sessionId, columnId } });
-  const restart = (page: Page, overrides: { rejectActions?: boolean; context?: Record<string, boolean> }) =>
+  const restart = (
+    page: Page,
+    overrides: { rejectActions?: boolean; hostMenu?: boolean; context?: Record<string, boolean> },
+  ) =>
     harness(page, (h, o) => h.startPage({ ...h.fixtures(), ...o, context: { ...h.fixtures().context, ...o!.context } }), overrides);
 
   // A real mouse drag: past the 5px activation distance, then onto the target.
@@ -395,7 +479,6 @@ test.describe("moving Cards", () => {
     const card = column(page, "action-needed").getByTestId("card-waiting");
     await drag(page, card, column(page, "done"));
 
-    await expect(card.getByTestId("stage-chip")).toHaveText("Done");
     await expect(column(page, "done").getByTestId("card-waiting")).toHaveCount(0);
     await expect.poll(() => actions(page)).toEqual([stageSet("waiting", "done")]);
   });
@@ -407,7 +490,7 @@ test.describe("moving Cards", () => {
   });
 
   test("Move to lists the Stage columns and writes the chosen one", async ({ page }) => {
-    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Move to…" }).click();
+    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Session actions" }).click();
 
     const items = board(page).getByRole("menu").getByRole("menuitemradio");
     await expect(items).toHaveText(["In progress", "Needs testing", "Waiting for review", "Done"]);
@@ -446,7 +529,7 @@ test.describe("moving Cards", () => {
       { config: editColumn(DEFAULT_CONFIG, "done", { title: "Done", on_enter }), overrides },
     );
   const moveTo = async (page: Page, id: string, title: string) => {
-    await board(page).getByTestId(`card-${id}`).getByRole("button", { name: "Move to…" }).click();
+    await board(page).getByTestId(`card-${id}`).getByRole("button", { name: "Session actions" }).click();
     await board(page).getByRole("menu").getByRole("menuitemradio").filter({ hasText: title }).click();
   };
 
@@ -503,18 +586,78 @@ test.describe("moving Cards", () => {
     await expect(board(page).getByTestId("card-fresh")).toHaveCount(0);
   });
 
+  test("the dashboard's session menu keeps an archive Column's own entry to retry a refused archive", async ({ page }) => {
+    await enterBoard(page, "archive", { rejectEnter: true, hostMenu: true });
+    const menuItems = async () => {
+      const before = await harness(page, (h) => h.menus.length);
+      await board(page).getByTestId("card-fresh").click({ button: "right" });
+      await expect.poll(() => harness(page, (h) => h.menus.length)).toBe(before + 1);
+      return (await harness(page, (h) => h.menus.at(-1)!)).items.map((i: { id: string }) => i.id);
+    };
+    expect(await menuItems()).toContain("move:done");
+    await harness(page, (h) => h.pickMenu("move:done"));
+    await harness(page, (h) => h.publishStage("fresh", "done"));
+    await expect(board(page).getByRole("alert")).toHaveText("Couldn't archive the Session.");
+
+    await harness(page, (h) => Object.assign(h.fixtures(), { rejectEnter: false }));
+    expect(await menuItems()).toContain("move:done");
+    await harness(page, (h) => h.pickMenu("move:done"));
+    await expect
+      .poll(() => actions(page))
+      .toEqual([stageSet("fresh", "done"), { method: "session.archive", params: { id: "fresh" } }]);
+  });
+
+  test("with the dashboard's session menu, a Card opens it with Move to items", async ({ page }) => {
+    await restart(page, { hostMenu: true });
+    const card = column(page, "in-progress").getByTestId("card-fresh");
+    await card.click({ button: "right", position: { x: 20, y: 10 } });
+    await expect.poll(() => harness(page, (h) => h.menus.length)).toBe(1);
+    const [menu] = await harness(page, (h) => h.menus);
+    // In the frame's own coordinates.
+    const box = await card.evaluate((el) => el.getBoundingClientRect().toJSON());
+    expect(menu.id).toBe("fresh");
+    expect(menu.x).toBeCloseTo(box.x + 20, 0);
+    expect(menu.y).toBeCloseTo(box.y + 10, 0);
+    expect(menu.items).toEqual([
+      { id: "move:needs-testing", label: "Move to Needs testing" },
+      { id: "move:waiting-for-review", label: "Move to Waiting for review" },
+      { id: "move:done", label: "Move to Done" },
+    ]);
+    // The Board's own menu stays closed.
+    await expect(board(page).getByRole("menu")).toHaveCount(0);
+
+    await harness(page, (h) => h.pickMenu("move:done"));
+    await expect(column(page, "done").getByTestId("card-fresh")).toBeVisible();
+    await expect.poll(() => actions(page)).toEqual([stageSet("fresh", "done")]);
+  });
+
+  test("the split view's Session is outlined", async ({ page }) => {
+    await expect(board(page).getByTestId("card-fresh")).toBeVisible();
+    await harness(page, (h) => h.pushSelection("fresh"));
+    await expect(board(page).getByTestId("card-fresh")).toHaveAttribute("aria-current", "true");
+    await expect(board(page).locator(".card.selected")).toHaveCount(1);
+    await harness(page, (h) => h.pushSelection(null));
+    await expect(board(page).locator(".card.selected")).toHaveCount(0);
+  });
+
   for (const flag of ["readOnly", "cityhall"] as const) {
     test(`${flag} context: no drag and no Move to`, async ({ page }) => {
       await restart(page, { context: { [flag]: true } });
       const card = column(page, "in-progress").getByTestId("card-fresh");
       await expect(card).toBeVisible();
-      await expect(card.getByRole("button", { name: "Move to…" })).toHaveCount(0);
+      await expect(card.getByRole("button", { name: "Session actions" })).toHaveCount(0);
 
       await card.click({ button: "right" });
       await expect(board(page).getByRole("menu")).toHaveCount(0);
       await drag(page, card, column(page, "done"));
       await expect(column(page, "in-progress").getByTestId("card-fresh")).toBeVisible();
       expect(await actions(page)).toEqual([]);
+    });
+
+    test(`${flag} context: the dashboard's session menu opens without Move to items`, async ({ page }) => {
+      await restart(page, { hostMenu: true, context: { [flag]: true } });
+      await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Session actions" }).click();
+      await expect.poll(() => harness(page, (h) => h.menus)).toMatchObject([{ id: "fresh", items: [] }]);
     });
   }
 });
@@ -547,7 +690,7 @@ test.describe("phone", () => {
 
   test("Move to sets a Stage", async ({ page }) => {
     await dots(page).nth(2).tap();
-    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Move to…" }).tap();
+    await column(page, "in-progress").getByTestId("card-fresh").getByRole("button", { name: "Session actions" }).tap();
     await board(page).getByRole("menu").getByRole("menuitemradio", { name: "Needs testing" }).tap();
     await expect(column(page, "needs-testing").getByTestId("card-fresh")).toBeAttached();
     await expect.poll(() => harness(page, (h) => h.actions)).toEqual([
@@ -578,4 +721,38 @@ test.describe("phone", () => {
     ]);
     expect(await harness(page, (h) => h.opened)).toEqual([]);
   });
+});
+
+test("a Column's one-click message sends from a Card and, after a confirm, from the Column", async ({ page }) => {
+  const b = board(page);
+  await b.getByRole("button", { name: "Edit column Action needed", exact: true }).click();
+  const edit = b.getByRole("dialog", { name: "Edit column" });
+  // A label without a message has nothing to send.
+  await edit.getByLabel("Button label").fill("Fix");
+  await expect(edit.getByRole("button", { name: "Save" })).toBeDisabled();
+  await edit.getByLabel("Message").fill("resolve the comments");
+  await edit.getByLabel("Then move the Card to").selectOption({ label: "Done" });
+  await edit.getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(1);
+  const saved = await harness(page, (h) => h.actions[0].params.config.columns.find((c) => c.id === "action-needed"));
+  expect(saved?.send).toEqual({ label: "Fix", message: "resolve the comments", stage: "done" });
+
+  const action = column(page, "action-needed");
+  await action.getByTestId("card-waiting").getByRole("button", { name: "Fix" }).click();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(2);
+  expect(await harness(page, (h) => h.actions[1])).toEqual({
+    method: "message.send",
+    params: { columnId: "action-needed", sessionIds: ["waiting"] },
+  });
+
+  // Many Sessions: the first click asks, the second sends.
+  await action.getByRole("button", { name: "Fix (all)" }).click();
+  expect(await harness(page, (h) => h.actions.length)).toBe(2);
+  await action.getByRole("button", { name: "Send to 2?" }).click();
+  await expect.poll(() => harness(page, (h) => h.actions.length)).toBe(3);
+  const sent = await harness(page, (h) => h.actions[2].params.sessionIds);
+  expect([...sent].sort()).toEqual(["flagged", "waiting"]);
+
+  // Columns without a message show no button.
+  await expect(column(page, "error").getByRole("button", { name: /Fix/ })).toHaveCount(0);
 });

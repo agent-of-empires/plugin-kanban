@@ -22,6 +22,8 @@ export interface BridgeTheme {
 export interface BridgeHandlers {
   onContext: (context: BridgeContext) => void;
   onTheme: (theme: BridgeTheme) => void;
+  // The Session the dashboard's split view shows below the page, or null.
+  onSelection: (sessionId: string | null) => void;
 }
 
 export class BridgeError extends Error {
@@ -34,7 +36,8 @@ export class BridgeError extends Error {
 }
 
 export interface Bridge {
-  request(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  // `wait` drops the timeout, for a call that waits on the user, like session.contextMenu.
+  request(method: string, params?: Record<string, unknown>, opts?: { wait?: boolean }): Promise<unknown>;
   // Closes the port and rejects every pending request.
   close(): void;
 }
@@ -42,7 +45,7 @@ export interface Bridge {
 interface Pending {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -68,6 +71,10 @@ export function connectBridge(host: Pick<Window, "postMessage">, nonce: string, 
     if (!isRecord(msg) || msg.aoeBridge !== BRIDGE_VERSION) return;
     if (msg.event === "context" && isContext(msg.data)) return handlers.onContext(msg.data);
     if (msg.event === "theme" && isTheme(msg.data)) return handlers.onTheme(msg.data);
+    if (msg.event === "selection" && isRecord(msg.data)) {
+      const { sessionId } = msg.data;
+      return handlers.onSelection(typeof sessionId === "string" ? sessionId : null);
+    }
     const p = typeof msg.id === "number" ? pending.get(msg.id) : undefined;
     if (!p) return;
     pending.delete(msg.id as number);
@@ -76,13 +83,15 @@ export function connectBridge(host: Pick<Window, "postMessage">, nonce: string, 
     else p.resolve(msg.result);
   };
 
-  const send = (method: string, params: Record<string, unknown> | undefined, post: (msg: object) => void) =>
+  const send = (method: string, params: Record<string, unknown> | undefined, post: (msg: object) => void, wait = false) =>
     new Promise<unknown>((resolve, reject) => {
       const id = nextId++;
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new BridgeError("timeout", `${method} timed out`));
-      }, TIMEOUT_MS);
+      const timer = wait
+        ? undefined
+        : setTimeout(() => {
+            pending.delete(id);
+            reject(new BridgeError("timeout", `${method} timed out`));
+          }, TIMEOUT_MS);
       pending.set(id, { resolve, reject, timer });
       post({ aoeBridge: BRIDGE_VERSION, id, method, ...(params && { params }) });
     });
@@ -92,7 +101,7 @@ export function connectBridge(host: Pick<Window, "postMessage">, nonce: string, 
   );
 
   return {
-    request: (method, params) => send(method, params, (msg) => port.postMessage(msg)),
+    request: (method, params, opts) => send(method, params, (msg) => port.postMessage(msg), opts?.wait),
     close() {
       port.close();
       for (const p of pending.values()) {

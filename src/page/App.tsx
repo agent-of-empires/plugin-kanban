@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type Column, type Config, addColumn, deleteColumn, editColumn, enterAction, moveColumn } from "../shared/board-config";
-import { type BridgeSession, type UiEntry, buildBoard, findSnapshot, rowColumnSlots } from "../shared/board-model";
-import { Board, type Editor } from "./Board";
-import type { Bridge, BridgeContext } from "./bridge";
+import { type Column, type Config, type Send, addColumn, deleteColumn, editColumn, enterAction, moveColumn } from "../shared/board-config";
+import { type BridgeSession, type UiEntry, buildBoard, facets, findSnapshot, rowColumnSlots } from "../shared/board-model";
+import { Board, type Editor, type HostMenu } from "./Board";
+import { type Bridge, type BridgeContext, BridgeError } from "./bridge";
 import { ColumnDialog } from "./ColumnDialog";
+import { ConfigDialog } from "./ConfigDialog";
 
 // The bridge has no change push, so the page polls.
 const POLL_MS = 2_000;
@@ -39,6 +40,9 @@ const ENTER_FAILED: Record<EnterMethod, string> = {
   "session.trash": "Couldn't move the Session to the trash.",
 };
 
+// Prefixes a Stage column id in the dashboard menu's page items.
+const MOVE = "move:";
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -59,8 +63,23 @@ function readData(sessions: unknown, uiState: unknown): Omit<Data, "seq"> {
   };
 }
 
-export function App({ bridge, context }: { bridge: Bridge; context: BridgeContext | null }) {
+export function App({
+  bridge,
+  context,
+  selected,
+}: {
+  bridge: Bridge;
+  context: BridgeContext | null;
+  selected: string | null;
+}) {
   const [data, setData] = useState<Data | null>(null);
+  // Whether the dashboard can open its own session menu. A probe with no params
+  // answers invalid_params where it can and unknown_method where it is older.
+  const [hostMenuOk, setHostMenuOk] = useState(false);
+  useEffect(() => {
+    if (!context) return;
+    bridge.request("session.contextMenu").catch((e: Error) => setHostMenuOk(e instanceof BridgeError && e.code === "invalid_params"));
+  }, [bridge, context]);
   const [failed, setFailed] = useState(false);
   const pollSeq = useRef(0);
 
@@ -92,6 +111,7 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
   const pendingRef = useRef<Config | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Column | "new" | null>(null);
+  const [configDialog, setConfigDialog] = useState<"export" | "import" | null>(null);
   const [moves, setMoves] = useState<Record<string, Move>>({});
   const nextReq = useRef(0);
   // The req of each Session's unsettled move, read by its timer and rejection.
@@ -196,6 +216,17 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
       },
     );
   };
+  const sendMessage = (column: Column, sessionIds: string[]) => {
+    setToast(null);
+    // The reply only acknowledges delivery to the worker, which logs a failed send.
+    bridge.request("action", { method: "message.send", params: { columnId: column.id, sessionIds } }).then(
+      () => setToast(`Sending "${column.send?.label}" to ${sessionIds.length} Session${sessionIds.length === 1 ? "" : "s"}.`),
+      (e: Error) => {
+        console.error(`[kanban] message.send failed: ${e.message}`);
+        setToast("Couldn't send the message.");
+      },
+    );
+  };
   const editor: Editor | undefined =
     context && !context.readOnly && !context.cityhall
       ? {
@@ -203,27 +234,56 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
           onEdit: setDialog,
           onMove: (id, to) => save(moveColumn(config, id, to)),
           onStage: setStage,
+          onSend: sendMessage,
+          onImport: () => setConfigDialog("import"),
         }
       : undefined;
   const editing = dialog === "new" ? null : dialog;
+  // The dashboard's session menu, with this Board's Stages appended as Move to items.
+  const hostMenu: HostMenu | undefined = hostMenuOk
+    ? (card, x, y) => {
+        const items = editor
+          ? config.columns
+              // The Card's own archive or trash Stage stays, to retry a refused action.
+              .filter((c) => c.kind === "stage" && (c.id !== card.stageId || enterAction(c)))
+              .map((c) => ({ id: MOVE + c.id, label: `Move to ${c.title}` }))
+          : [];
+        bridge.request("session.contextMenu", { id: card.session.id, x, y, items }, { wait: true }).then(
+          (picked) => {
+            if (editor && typeof picked === "string" && picked.startsWith(MOVE)) setStage(card.session.id, picked.slice(MOVE.length));
+          },
+          (e: Error) => console.error(`[kanban] session.contextMenu failed: ${e.message}`),
+        );
+      }
+    : undefined;
 
   return (
     <>
-      <Board columns={columns} onOpen={openSession} editor={editor} />
+      <Board
+        columns={columns}
+        selected={selected}
+        onOpen={openSession}
+        onExport={() => setConfigDialog("export")}
+        editor={editor}
+        hostMenu={hostMenu}
+      />
       {editor && dialog && (
         <ColumnDialog
           column={editing}
           canDelete={!!editing && !!deleteColumn(config, editing.id)}
           slots={rowColumnSlots(data.entries)}
+          facets={facets(data.entries)}
+          stages={config.columns.filter((c) => c.kind === "stage")}
           onClose={() => setDialog(null)}
-          onSave={(title, kind, onEnter, rules) => {
-            if (!editing) save(addColumn(config, title, kind, onEnter, rules));
+          onSave={(title, kind, onEnter, rules, send?: Send) => {
+            if (!editing) save(addColumn(config, title, kind, onEnter, rules, send));
             else if (
               title !== editing.title ||
               onEnter !== editing.on_enter ||
-              JSON.stringify(rules) !== JSON.stringify(editing.rules)
+              JSON.stringify(rules) !== JSON.stringify(editing.rules) ||
+              JSON.stringify(send) !== JSON.stringify(editing.send)
             )
-              save(editColumn(config, editing.id, { title, on_enter: onEnter, rules }));
+              save(editColumn(config, editing.id, { title, on_enter: onEnter, rules, send }));
             setDialog(null);
           }}
           onDelete={() => {
@@ -231,6 +291,20 @@ export function App({ bridge, context }: { bridge: Bridge; context: BridgeContex
             if (next) save(next);
             setDialog(null);
           }}
+        />
+      )}
+      {configDialog && (
+        <ConfigDialog
+          config={config}
+          onImport={
+            editor && configDialog === "import"
+              ? (next) => {
+                  save(next);
+                  setConfigDialog(null);
+                }
+              : undefined
+          }
+          onClose={() => setConfigDialog(null)}
         />
       )}
       {toast && (

@@ -8,6 +8,7 @@ import {
   moveColumn,
   newColumnId,
   parseConfig,
+  parseConfigJson,
 } from "../src/shared/board-config";
 
 const withColumns = (columns: unknown[]) => ({ version: 1, columns });
@@ -22,6 +23,7 @@ test("accepts plugin fields and every op", () => {
     { field: { plugin_id: "agent-of-empires.github", slot_id: "pr", attr: "text" }, op: "is not", value: "open" },
     { field: "unread", op: "is empty" },
     { field: "pending_approvals", op: "is", value: 2 },
+    { field: { plugin_id: "agent-of-empires.github", facet_id: "github_ci" }, op: "is", value: "ci:failing" },
   ];
   const sig = { id: "x", title: "X", kind: "signal", rules: [rule], on_enter: "trash" };
   expect(parseConfig(withColumns([sig, stage])).ok).toBe(true);
@@ -42,6 +44,8 @@ test.each([
   ["unknown op", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: "urgent", op: "~" }]] }]), "unknown op"],
   ["missing value", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: "status", op: "is" }]] }]), "needs value"],
   ["stray value", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: "status", op: "is set", value: "x" }]] }]), "takes no value"],
+  ["facet without id", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: { plugin_id: "p", facet_id: "" }, op: "is set" }]] }]), "facet_id required"],
+  ["facet with a slot", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: { plugin_id: "p", facet_id: "f", slot_id: "s" }, op: "is set" }]] }]), 'unknown key "slot_id"'],
   ["bad plugin attr", withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: { plugin_id: "p", slot_id: "s", attr: "color" }, op: "is set" }]] }]), "attr must be"],
 ])("rejects %s", (_name, value, error) => {
   const result = parseConfig(value);
@@ -131,4 +135,43 @@ test("a new Signal column can start with Rules", () => {
   const added = addColumn(DEFAULT_CONFIG, "Idle", "signal", "none", rules);
   valid(added);
   expect(added.columns.at(-1)).toMatchObject({ kind: "signal", rules });
+});
+
+test("an exported config imports back unchanged", () => {
+  const config = addColumn(DEFAULT_CONFIG, "Archive", "stage", "archive");
+  expect(parseConfigJson(JSON.stringify(config, null, 2))).toEqual({ ok: true, config });
+});
+
+test.each([
+  ["invalid JSON", "{ version: 1", "not valid JSON"],
+  ["an empty file", "", "not valid JSON"],
+  ["a nested unknown key", JSON.stringify(withColumns([{ ...stage, color: "red" }])), 'column 0: unknown key "color"'],
+  ["a JSON array", "[]", "config: not an object"],
+  [
+    "a number too big to store",
+    JSON.stringify(withColumns([stage, { ...stage, id: "g", kind: "signal", rules: [[{ field: "pending_approvals", op: "is", value: 1 }]] }])).replace(
+      '"value":1',
+      '"value":1e400',
+    ),
+    "rule 0 condition 0: value must be a finite number",
+  ],
+])("import rejects %s", (_name, text, error) => {
+  const result = parseConfigJson(text);
+  expect(result.ok ? "" : result.error).toContain(error);
+});
+
+const withSend = (send: unknown) => ({
+  version: 1,
+  columns: [{ id: "s", title: "S", kind: "stage", rules: [], on_enter: "none", send }],
+});
+
+test("a Column send takes a label and message with an optional stage", () => {
+  expect(parseConfig(withSend({ label: "Fix", message: "do it" })).ok).toBe(true);
+  expect(parseConfig(withSend({ label: "Fix", message: "do it", stage: "s" })).ok).toBe(true);
+});
+
+test("a Column send rejects an empty message, an unknown key and an over-long message", () => {
+  expect(parseConfig(withSend({ label: "Fix", message: "" })).ok).toBe(false);
+  expect(parseConfig(withSend({ label: "Fix", message: "x", extra: 1 })).ok).toBe(false);
+  expect(parseConfig(withSend({ label: "Fix", message: "x".repeat(4_001) })).ok).toBe(false);
 });
