@@ -8,9 +8,9 @@ that speaks JSON-RPC 2.0 over newline-delimited JSON on stdio.
 
 ## Requirements
 
-Agent of Empires 1.20.0 or newer, and Node 22 or newer on the `PATH` of the AoE
-daemon. The built worker and page are committed under `dist/`, so install runs
-no build step and needs no `npm`.
+Agent of Empires 1.20.0 or newer, before 2.0.0, and Node 22 or newer on the
+`PATH` of the AoE daemon. The built worker and page are committed under `dist/`,
+so install runs no build step and needs no `npm`.
 
 Unread, the split view, the dashboard's session menu on Cards, and archive or
 trash on drop need the core release after 1.20.0. On 1.20.0 unread reads as
