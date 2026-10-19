@@ -12,6 +12,11 @@ Agent of Empires 1.20.0 or newer, and Node 22 or newer on the `PATH` of the AoE
 daemon. The built worker and page are committed under `dist/`, so install runs
 no build step and needs no `npm`.
 
+Unread, the split view, the dashboard's session menu on Cards, and archive or
+trash on drop need the core release after 1.20.0. On 1.20.0 unread reads as
+missing, the split view is absent, `⋯` opens the Board's own **Move to** menu,
+and archive or trash on drop records the Stage but reports that it failed.
+
 ## Install into Agent of Empires
 
 ```bash
@@ -96,9 +101,9 @@ A condition is a field, an operator and, for `is` and `is not`, a value:
 - When several plugin row columns match one condition, `is` needs any of them
   to equal the value and `is not` needs none to.
 
-Urgent, unread, last error and pending Approvals are not yet exposed to plugin
-pages by the dashboard, so they read as missing for now; so is last activity,
-which Card order uses.
+Urgent, last error and pending Approvals are not yet exposed to plugin pages by
+the dashboard, so they read as missing for now; so is last activity, which Card
+order uses.
 
 The search box matches title, path, repo, branch and agent, like the sidebar
 filter. Group names are not exposed to plugin pages yet, so they do not match.
@@ -167,9 +172,7 @@ here" in the Column dialog). Moving a Card there records the Stage, then, once
 the Board shows it written, archives or trashes the Session without asking, so
 the Card leaves the Board; restore it from the dashboard. Only a move triggers
 it: a restored Session sits in that Column untouched until moved again.
-Dropping it on the same Column retries a failed archive or trash. Archive and
-trash need a core release newer than 1.20.0; on 1.20.0 the Stage is recorded and
-the Board reports that the archive or trash failed.
+Dropping it on the same Column retries a failed archive or trash.
 
 ## Where data lives
 
