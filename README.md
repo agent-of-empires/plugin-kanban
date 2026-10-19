@@ -6,14 +6,16 @@ An [Agent of Empires](https://github.com/agent-of-empires/agent-of-empires)
 plugin. It adds a **Board** page (the `page` UI slot) backed by a Node worker
 that speaks JSON-RPC 2.0 over newline-delimited JSON on stdio.
 
-> **Status:** early. Columns, Rules and Cards are editable. The page slot needs core
-> [agent-of-empires#4459](https://github.com/agent-of-empires/agent-of-empires/issues/4459)
-> (`api_version` 16).
-
 ## Requirements
 
-Node 22 or newer on the `PATH` of the AoE daemon. The built worker and page are
-committed under `dist/`, so install runs no build step and needs no `npm`.
+Agent of Empires 1.20.0 or newer, before 2.0.0, and Node 22 or newer on the
+`PATH` of the AoE daemon. The built worker and page are committed under `dist/`,
+so install runs no build step and needs no `npm`.
+
+Unread, the split view, the dashboard's session menu on Cards, and archive or
+trash on drop need the core release after 1.20.0. On 1.20.0 unread reads as
+missing, the split view is absent, `⋯` opens the Board's own **Move to** menu,
+and archive or trash on drop records the Stage but reports that it failed.
 
 ## Install into Agent of Empires
 
@@ -21,9 +23,12 @@ committed under `dist/`, so install runs no build step and needs no `npm`.
 # from a fresh clone (no node_modules/)
 aoe plugin install ./plugin-kanban
 
-# or from GitHub once published
+# or the latest release from GitHub
 aoe plugin install gh:agent-of-empires/plugin-kanban
 ```
+
+`agent-of-empires.kanban` is a reserved namespace, so a GitHub install only
+succeeds for a release that AoE pins in its featured index.
 
 Install from a checkout without `node_modules/`: the installer rejects symlinks,
 and `npm ci` creates them under `node_modules/.bin`.
@@ -96,9 +101,9 @@ A condition is a field, an operator and, for `is` and `is not`, a value:
 - When several plugin row columns match one condition, `is` needs any of them
   to equal the value and `is not` needs none to.
 
-Urgent, unread, last error and pending Approvals are not yet exposed to plugin
-pages by the dashboard, so they read as missing for now; so is last activity,
-which Card order uses.
+Urgent, last error and pending Approvals are not yet exposed to plugin pages by
+the dashboard, so they read as missing for now; so is last activity, which Card
+order uses.
 
 The search box matches title, path, repo, branch and agent, like the sidebar
 filter. Group names are not exposed to plugin pages yet, so they do not match.
@@ -182,8 +187,6 @@ The worker owns all Board state, so every device sees the same Board.
   UI state, which the page reads. It is a copy of the two above, capped at
   64 KiB; a change that would push it over is refused and logged.
 
-Publishing the snapshot needs a core release where the `page` slot accepts UI state.
-
 ## Develop
 
 ```bash
@@ -194,6 +197,8 @@ npm run build      # writes dist/worker.js and dist/index.html
 npm test           # Vitest, against the built worker
 npm run test:e2e   # Playwright, against the built page
 ```
+
+Releases are cut by CI; see [RELEASING.md](RELEASING.md).
 
 `dist/` is committed and must match the source: run `npm run build` and commit
 the result with your change. CI fails when they drift.
